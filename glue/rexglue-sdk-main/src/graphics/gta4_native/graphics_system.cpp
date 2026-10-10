@@ -21130,10 +21130,8 @@ VkPipeline Gta4NativeGraphicsSystem::GetOrCreatePipeline(
   if (HasUnsupportedNativeUserClipPlanes(fixed_function_state.clip_control)) {
     return reject("unsupported-user-clip-plane-state");
   }
-  if (fixed_function_state.user_clip_plane_enable_mask &&
-      !vulkan_device->properties().shaderClipDistance) {
-    return reject("shader-clip-distance-unsupported");
-  }
+  // Without shaderClipDistance the clip outputs are rewritten into unused
+  // varyings at shader load, so such draws proceed unclipped.
   if (fixed_function_state.depth_clamp_enable && !vulkan_device->properties().depthClamp) {
     return reject("depth-clamp-unsupported");
   }

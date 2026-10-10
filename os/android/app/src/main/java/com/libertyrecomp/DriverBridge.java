@@ -138,7 +138,7 @@ final class DriverBridge {
 
     /** Renderer-required Vulkan features, in the order the report names them. */
     private static final String[] REQUIRED_FEATURES = {
-            "shaderInt64", "depthClamp", "shaderClipDistance", "sampleRateShading",
+            "shaderInt64", "depthClamp", "sampleRateShading",
             "independentBlend", "runtimeDescriptorArray", "descriptorBindingPartiallyBound",
             "bufferDeviceAddress",
     };

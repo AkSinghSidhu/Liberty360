@@ -2,16 +2,55 @@
     <img src="docs/android/images/banner_android_v4.png" alt="Liberty Recompiled for Android" width="800"/>
 </p>
 
-# LibertyRecompAndroid
+# LibertyRecompAndroid — Mali Version (WIP)
+
+> [!WARNING]
+> **Work in progress.** This is a fork of
+> [LibertyRecompAndroid](https://github.com/vaduur/LibertyRecompAndroid) that is trying to get the
+> game running on **ARM Mali GPUs**, starting with the **MediaTek Dimensity 8400 (Mali-G720 MC7)**.
+> It boots and reaches gameplay, but it is **not playable yet**. Use the original project if you
+> have a Snapdragon (Adreno) device.
 
 An Android port of [Liberty Recompiled](https://github.com/OZORDI/LibertyRecomp), the static
 recompilation of the Xbox 360 version of Grand Theft Auto IV. It runs the recompiled game natively
-on arm64 Android phones and handhelds with a Snapdragon (Adreno) GPU, using Vulkan through a bundled
-Mesa Turnip driver. There is no emulator in between.
+on arm64 Android devices. There is no emulator in between. This fork targets Mali GPUs through the
+phone's own Vulkan driver; the original targets Adreno GPUs through a bundled Mesa Turnip driver.
 
-<p align="center">
-    <img src="docs/android/images/ingame.jpg" alt="GTA IV running on a Retroid Pocket 5" width="800"/>
-</p>
+## Mali version status
+
+Tested on one device: a Xiaomi phone with a **Dimensity 8400 (Mali-G720 MC7)**, Android 16,
+Mali driver r49p1.
+
+What works so far:
+
+- The APK builds automatically with GitHub Actions on the `mali-dimensity-8400` branch.
+- The game installs, boots and reaches the first mission. The HUD, subtitles, lights and the
+  on-screen gamepad work.
+
+What is broken:
+
+- **Most of the world does not render correctly.** Roads and buildings show as flat, untextured
+  shapes and the radar is only partly drawn. This is being investigated with debug logs.
+- Performance on Mali has not been measured or tuned yet.
+
+Changes made for Mali so far:
+
+- **Android C++ library fixes.** The NDK's libc++ lacks `std::jthread`/`std::stop_token`,
+  floating-point `std::from_chars` and `std::atomic_ref`. Small fallbacks were added so the native
+  libraries compile for Android.
+- **No `shaderClipDistance` on Mali.** Mali drivers do not offer clip distances, which the game's
+  shaders use. Shaders are now rewritten as they load: clip-distance outputs become ordinary unused
+  outputs, so the shaders are valid on Mali (all 650 affected shaders pass the Vulkan validator).
+  User clip planes are skipped, so some reflections or cut geometry may look wrong. Adreno devices
+  that support clip distances are not affected.
+
+Feedback and logs from other Mali / Dimensity devices are welcome. When reporting, attach
+`Android/data/com.libertyrecomp/files/last_launch.txt` and, if the game starts, a log from
+**Play (Debug Log)** (`files/debug_logs/`).
+
+---
+
+The rest of this README is from the original project and describes the Adreno build.
 
 **DISCLAIMER!**
 

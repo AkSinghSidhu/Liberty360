@@ -51,6 +51,28 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <version>
+
+// std::atomic_ref is missing from the Android NDK's libc++. These relaxed
+// load/store helpers use it where available, else the compiler builtins.
+namespace {
+template <typename T>
+inline void RexRelaxedStore(T& target, T value) {
+#if defined(__cpp_lib_atomic_ref)
+  std::atomic_ref<T>(target).store(value, std::memory_order_relaxed);
+#else
+  __atomic_store_n(&target, value, __ATOMIC_RELAXED);
+#endif
+}
+template <typename T>
+inline T RexRelaxedLoad(T& target) {
+#if defined(__cpp_lib_atomic_ref)
+  return std::atomic_ref<T>(target).load(std::memory_order_relaxed);
+#else
+  return __atomic_load_n(&target, __ATOMIC_RELAXED);
+#endif
+}
+}  // namespace
 
 #if defined(__APPLE__) && defined(__MACH__)
 #include <mach/mach.h>
@@ -6190,7 +6212,7 @@ void Gta4NativeGraphicsSystem::RenderWorkerMain() {
           bound.read_epoch = read_epoch;
           const auto mark_read = [read_epoch](const NativeTextureResource* resource) {
             if (resource)
-              std::atomic_ref(resource->assembly_read_epoch).store(read_epoch, std::memory_order_relaxed);
+              RexRelaxedStore(resource->assembly_read_epoch, read_epoch);
           };
           for (const auto& texture : assembled.textures) {
             if (!texture) continue;
@@ -30204,7 +30226,7 @@ bool Gta4NativeGraphicsSystem::RecordNativeFrame(
       if (pipelined_recording_ && frame_constant_bound_.valid && frame_constant_bound_.read_epoch &&
           REXCVAR_GET(gta4_native_assembled_frame_scans)) {
         // A later frame's stamp only makes this conservative (an extra resolve).
-        read = std::atomic_ref(frontbuffer->assembly_read_epoch).load(std::memory_order_relaxed) >=
+        read = RexRelaxedLoad(frontbuffer->assembly_read_epoch) >=
                frame_constant_bound_.read_epoch;
       } else for (const NativeCommand& scan : current_frame_) {
         for (const auto& texture : scan.textures) {

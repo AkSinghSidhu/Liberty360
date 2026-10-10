@@ -49,6 +49,15 @@ LIBERTY_GPU=mali bash os/android/scripts/build_apk.sh
 or, directly: `./gradlew assembleDebug -PlibertyGpu=mali`. The native libraries
 (`build_native.sh`) are identical for both builds.
 
+### Building on GitHub (no PC)
+
+`.github/workflows/build-android-apk.yml` builds the APK on a GitHub Windows runner. It runs by
+itself on a push to the `mali-dimensity-8400` branch, or from the **Actions** tab with **Run
+workflow** (choose `mali` or `adreno`). The APK appears under **Artifacts** on the finished run.
+On a fork, Actions must first be enabled once from the Actions tab. The native build is very
+large, so the first run takes hours; the build folder is cached, so later runs are faster. This
+workflow has not been run yet, so expect to fix a first failure.
+
 The package name is unchanged (`com.libertyrecomp`), so the Mali APK replaces an Adreno one and
 shares the installed game and saves. Add `applicationIdSuffix = ".mali"` in
 `os/android/app/build.gradle.kts` if you want both side by side (each would then need its own

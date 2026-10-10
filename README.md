@@ -74,8 +74,10 @@ Known problems:
 
 **Not supported:**
 
-- **ARM Mali / Immortalis GPUs.** This covers most Exynos chips before the 2200, MediaTek
-  Dimensity/Helio and Google Tensor.
+- **ARM Mali / Immortalis GPUs** in the normal build. This covers most Exynos chips before the
+  2200, MediaTek Dimensity/Helio and Google Tensor. An **untested** Mali build that uses the
+  phone's own Vulkan driver is described in [MALI.md](docs/android/MALI.md) (aimed at the
+  Dimensity 8400).
 - **Samsung Xclipse GPUs** (Exynos 2200 and newer).
 - **PowerVR GPUs** and anything else that is not an Adreno.
 
@@ -182,6 +184,7 @@ The full walkthrough, including the `install/` folder and older versions, is in
 | [Advanced configuration](docs/android/ADVANCED.md) | `args.txt` settings, live tuning, driver selection, logs, performance presets |
 | [What was done for Android](docs/android/PORTING.md) | Technical write-up of the port: build, platform layer, driver, renderer and stability work |
 | [Building from source](docs/android/BUILDING.md) | Building the APK yourself |
+| [Mali build](docs/android/MALI.md) | The untested variant for Mali / Immortalis GPUs (Dimensity 8400) |
 | [Upstream README](README_UPSTREAM.md) | The original Liberty Recompiled README (desktop builds, mods, online) |
 
 ## Credits

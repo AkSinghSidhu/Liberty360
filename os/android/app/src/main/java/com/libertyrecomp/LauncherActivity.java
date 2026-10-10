@@ -773,10 +773,13 @@ public class LauncherActivity extends Activity {
         mDrivers.clearCheck();
         mDrivers.removeAllViews();
         mDriverModes.clear();
+        boolean mali = DriverBridge.isMaliBuild();
         addDriver(DriverBridge.TURNIP, "Turnip 26.3.0-R6 (bundled)",
-                "Recommended for Adreno 6xx/7xx");
+                mali ? "Adreno GPUs only; does not work on Mali"
+                     : "Recommended for Adreno 6xx/7xx");
         addDriver(DriverBridge.SYSTEM, "System driver",
-                "The device's own Vulkan driver (needs Vulkan 1.2)");
+                mali ? "Recommended for Mali / Immortalis (needs Vulkan 1.2)"
+                     : "The device's own Vulkan driver (needs Vulkan 1.2)");
         File[] packages = customRoot().listFiles();
         if (packages != null) {
             Arrays.sort(packages);
@@ -792,7 +795,7 @@ public class LauncherActivity extends Activity {
             }
         }
         int index = mDriverModes.indexOf(current);
-        if (index < 0) index = 0;
+        if (index < 0) index = Math.max(0, mDriverModes.indexOf(DriverBridge.defaultMode()));
         mDrivers.check(index + 1);
         mDrivers.setOnCheckedChangeListener((group, id) -> onDriverChecked(id));
         updateDriverNote(index);
@@ -836,13 +839,14 @@ public class LauncherActivity extends Activity {
 
     private String currentDriverMode() {
         String line = readFirstLine(new File(mDataRoot, "driver.txt"));
-        if (line == null) return DriverBridge.TURNIP;
+        if (line == null) return DriverBridge.defaultMode();
         String lower = line.toLowerCase(Locale.ROOT);
         if (lower.equals(DriverBridge.SYSTEM)) return DriverBridge.SYSTEM;
+        if (lower.equals(DriverBridge.TURNIP)) return DriverBridge.TURNIP;
         if (lower.startsWith(DriverBridge.CUSTOM_PREFIX)) {
             return DriverBridge.CUSTOM_PREFIX + line.substring(DriverBridge.CUSTOM_PREFIX.length()).trim();
         }
-        return DriverBridge.TURNIP;
+        return DriverBridge.defaultMode();
     }
 
     private void writeDriverMode(String mode) {

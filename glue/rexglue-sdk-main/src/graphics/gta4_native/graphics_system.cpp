@@ -10,6 +10,7 @@
 #include "native_pipeline_stats.h"
 #include "native_gpu_counters.h"
 #include "native_spirv_descriptor_remap.h"
+#include "native_bc_decode.h"
 #include "native_spirv_loop_watchdog.h"
 #include "native_spirv_legacy_mul.h"
 #include "native_vertex_cache.h"
@@ -17880,7 +17881,10 @@ Gta4NativeGraphicsSystem::NativeTextureImage* Gta4NativeGraphicsSystem::GetOrCre
     return existing->second.get();
   }
   protected_texture_generations_.insert(texture->generation);
-  const VkFormat format = ConvertTextureFormat(texture->info.format);
+  VkFormat format = ConvertTextureFormat(texture->info.format);
+  // Set when the GPU cannot sample this BC format (Mali): the payload is
+  // decoded to RGBA8 on the CPU before upload instead.
+  VkFormat bc_source_format = VK_FORMAT_UNDEFINED;
   if (format == VK_FORMAT_UNDEFINED) {
     return reject("format");
   }
@@ -17902,6 +17906,19 @@ Gta4NativeGraphicsSystem::NativeTextureImage* Gta4NativeGraphicsSystem::GetOrCre
       vulkan_device->physical_device(), format, &format_properties);
   constexpr VkFormatFeatureFlags kRequiredTextureFeatures =
       VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT;
+  if ((format_properties.optimalTilingFeatures & kRequiredTextureFeatures) !=
+          kRequiredTextureFeatures &&
+      IsNativeBcFormat(format) && !texture->gpu_produced) {
+    VkFormatProperties rgba_properties{};
+    vulkan_device->vulkan_instance()->functions().vkGetPhysicalDeviceFormatProperties(
+        vulkan_device->physical_device(), VK_FORMAT_R8G8B8A8_UNORM, &rgba_properties);
+    if ((rgba_properties.optimalTilingFeatures & kRequiredTextureFeatures) ==
+        kRequiredTextureFeatures) {
+      bc_source_format = format;
+      format = VK_FORMAT_R8G8B8A8_UNORM;
+      format_properties = rgba_properties;
+    }
+  }
   if ((format_properties.optimalTilingFeatures & kRequiredTextureFeatures) !=
       kRequiredTextureFeatures) {
     return reject("format-capabilities");
@@ -18105,20 +18122,57 @@ Gta4NativeGraphicsSystem::NativeTextureImage* Gta4NativeGraphicsSystem::GetOrCre
 
   std::optional<NativeTextureUploadBatch::Upload> pending_upload;
   if (!texture->gpu_produced) {
+    // BC fallback: decode every mip/slice to RGBA8, keeping one entry per mip.
+    std::vector<uint8_t> decoded_payload;
+    std::vector<size_t> decoded_offsets;
+    if (bc_source_format != VK_FORMAT_UNDEFINED) {
+      const uint32_t block_bytes = NativeBcBlockBytes(bc_source_format);
+      decoded_offsets.reserve(texture->mip_levels.size());
+      for (const NativeTextureResource::MipLevel& mip : texture->mip_levels) {
+        const uint32_t row_length = std::max(mip.buffer_row_length, mip.width);
+        const uint32_t image_height = std::max(mip.buffer_image_height, mip.height);
+        const uint32_t blocks_x = (row_length + 3) / 4, blocks_y = (image_height + 3) / 4;
+        const size_t source_slice = size_t(blocks_x) * blocks_y * block_bytes;
+        const size_t decoded_slice = size_t(blocks_x) * blocks_y * 64;
+        const uint32_t slices = std::max(mip.depth, 1u) * std::max(mip.layer_count, 1u);
+        const size_t offset = decoded_payload.size();
+        decoded_offsets.push_back(offset);
+        decoded_payload.resize(offset + decoded_slice * slices);
+        for (uint32_t slice = 0; slice < slices; ++slice) {
+          const size_t source_offset = mip.payload_offset + source_slice * slice;
+          if (source_offset + source_slice > texture->payload.size()) break;
+          DecodeNativeBcSlice(bc_source_format, texture->payload.data() + source_offset,
+                              blocks_x * 4, blocks_y * 4,
+                              decoded_payload.data() + offset + decoded_slice * slice);
+        }
+      }
+    }
+    const bool bc_decoded = !decoded_offsets.empty();
+    const uint8_t* upload_source = bc_decoded ? decoded_payload.data() : texture->payload.data();
+    const size_t upload_size = bc_decoded ? decoded_payload.size() : texture->payload.size();
     NativeUploadAllocation upload;
-    if (!AllocateUpload(texture->payload.size(), 16, upload, NativeUploadKind::kTexture)) {
+    if (!AllocateUpload(upload_size, 16, upload, NativeUploadKind::kTexture)) {
       DestroyNativeTextureImage(*image);
       return reject("upload-allocation");
     }
-    std::memcpy(upload.mapping, texture->payload.data(), texture->payload.size());
+    std::memcpy(upload.mapping, upload_source, upload_size);
 
     std::vector<VkBufferImageCopy> copies;
     copies.reserve(texture->mip_levels.size());
-    for (const NativeTextureResource::MipLevel& mip : texture->mip_levels) {
+    for (size_t mip_index = 0; mip_index < texture->mip_levels.size(); ++mip_index) {
+      const NativeTextureResource::MipLevel& mip = texture->mip_levels[mip_index];
       VkBufferImageCopy copy{};
-      copy.bufferOffset = upload.offset + mip.payload_offset;
-      copy.bufferRowLength = mip.buffer_row_length;
-      copy.bufferImageHeight = mip.buffer_image_height;
+      if (bc_decoded) {
+        const uint32_t row_length = std::max(mip.buffer_row_length, mip.width);
+        const uint32_t image_height = std::max(mip.buffer_image_height, mip.height);
+        copy.bufferOffset = upload.offset + decoded_offsets[mip_index];
+        copy.bufferRowLength = (row_length + 3) / 4 * 4;
+        copy.bufferImageHeight = (image_height + 3) / 4 * 4;
+      } else {
+        copy.bufferOffset = upload.offset + mip.payload_offset;
+        copy.bufferRowLength = mip.buffer_row_length;
+        copy.bufferImageHeight = mip.buffer_image_height;
+      }
       copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
       copy.imageSubresource.mipLevel = mip.level;
       copy.imageSubresource.baseArrayLayer = mip.base_array_layer;

@@ -23,6 +23,10 @@ import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
+import android.widget.CheckBox;
+import android.widget.Spinner;
 import android.app.AlertDialog;
 import android.view.WindowManager;
 import android.widget.ImageView;
@@ -321,6 +325,8 @@ public class LauncherActivity extends Activity {
         column.setOrientation(LinearLayout.VERTICAL);
         column.addView(buildInstallCard());
         column.addView(right, matchWrap(dp(14)));
+        column.addView(buildGraphicsCard(), matchWrap(dp(14)));
+        column.addView(buildOverlayCard(), matchWrap(dp(14)));
         ScrollView rightScroll = new ScrollView(this);
         mRightScroll = rightScroll;
         rightScroll.addView(column);
@@ -392,6 +398,288 @@ public class LauncherActivity extends Activity {
 
     private LinearLayout mCrashCard;
     private TextView mCrashText;
+
+    // Graphics settings: one dropdown per setting, saved to graphics.txt, which
+    // LibertyActivity appends after args.txt. "Default" writes nothing, so the
+    // value from args.txt applies.
+    private static final class GraphicsSetting {
+        final String label;
+        final String note;
+        final String[] cvars;    // every cvar this setting writes (density writes four)
+        final String[] choices;  // shown in the dropdown; index 0 is "Default"
+        final String[] values;   // values for choices 1..n
+        GraphicsSetting(String label, String note, String[] cvars, String[] choices, String[] values) {
+            this.label = label;
+            this.note = note;
+            this.cvars = cvars;
+            this.choices = choices;
+            this.values = values;
+        }
+    }
+
+    private static final GraphicsSetting[] GRAPHICS_SETTINGS = {
+            new GraphicsSetting("Resolution", "Lower is faster",
+                    new String[] {"gta4_output_height_cap"},
+                    new String[] {"Default", "540p", "720p", "900p", "1080p", "Screen resolution"},
+                    new String[] {"540", "720", "900", "1080", "0"}),
+            new GraphicsSetting("Upscaler", "FSR 1 renders below the resolution and sharpens",
+                    new String[] {"gta4_native_upscaler"},
+                    new String[] {"Default", "Off", "FSR 1"},
+                    new String[] {"native", "fsr1"}),
+            new GraphicsSetting("FSR 1 quality", "Only used with the FSR 1 upscaler",
+                    new String[] {"gta4_fsr1_quality"},
+                    new String[] {"Default", "Ultra quality", "Quality", "Balanced", "Performance"},
+                    new String[] {"ultra_quality", "quality", "balanced", "performance"}),
+            new GraphicsSetting("Anti-aliasing", "Smooths jagged edges",
+                    new String[] {"gta4_native_anti_aliasing"},
+                    new String[] {"Default", "Off", "FXAA", "SMAA"},
+                    new String[] {"off", "fxaa", "smaa"}),
+            new GraphicsSetting("Frame limit", "30 is the steadiest on most phones",
+                    new String[] {"gta4_frame_limit"},
+                    new String[] {"Default", "30 FPS", "40 FPS", "60 FPS", "Unlocked"},
+                    new String[] {"30", "40", "60", "0"}),
+            new GraphicsSetting("Draw distance", "Mostly costs CPU time",
+                    new String[] {"gta4_draw_distance_scale"},
+                    new String[] {"Default", "60%", "80%", "100% (console)", "120%"},
+                    new String[] {"0.6", "0.8", "1.0", "1.2"}),
+            new GraphicsSetting("Population density", "Cars and pedestrians; mostly costs CPU time",
+                    new String[] {"gta4_traffic_density_scale", "gta4_parked_car_density_scale",
+                            "gta4_ped_density_scale", "gta4_scenario_ped_density_scale"},
+                    new String[] {"Default", "Very low (20%)", "Low (30%)", "Medium (40%)",
+                            "High (70%)", "Console (100%)"},
+                    new String[] {"0.2", "0.3", "0.4", "0.7", "1.0"}),
+            new GraphicsSetting("Shadow quality", "High is sharper and costs some GPU time",
+                    new String[] {"gta4_shadow_map_base_size"},
+                    new String[] {"Default", "Console", "High"},
+                    new String[] {"256", "512"}),
+            new GraphicsSetting("Motion blur", "Makes 30 FPS look smoother",
+                    new String[] {"gta4_motion_blur"},
+                    new String[] {"Default", "On", "Off"},
+                    new String[] {"true", "false"}),
+            new GraphicsSetting("Reflection anti-aliasing", "Off saves GPU time",
+                    new String[] {"gta4_reflection_aa"},
+                    new String[] {"Default", "Off", "Original"},
+                    new String[] {"off", "original"}),
+            new GraphicsSetting("Run-ahead frames", "More can raise FPS but adds input delay",
+                    new String[] {"gta4_extra_frames_in_flight"},
+                    new String[] {"Default", "0", "1", "2"},
+                    new String[] {"0", "1", "2"}),
+    };
+    private final Spinner[] mGraphicsSpinners = new Spinner[GRAPHICS_SETTINGS.length];
+    private boolean mGraphicsLoading;
+
+    private View buildGraphicsCard() {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(16), dp(12), dp(16), dp(12));
+        card.setBackground(rounded(color(R.color.picker_card), dp(10)));
+        TextView title = text("Graphics settings", 18, R.color.picker_text);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        card.addView(title);
+        card.addView(text("\"Default\" keeps the value from args.txt. Applied the next time you "
+                + "press Play.", 12, R.color.picker_muted), matchWrap(dp(2)));
+
+        java.util.Map<String, String> saved = readGraphicsSettings();
+        mGraphicsLoading = true;
+        for (int i = 0; i < GRAPHICS_SETTINGS.length; ++i) {
+            GraphicsSetting setting = GRAPHICS_SETTINGS[i];
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+
+            LinearLayout labels = new LinearLayout(this);
+            labels.setOrientation(LinearLayout.VERTICAL);
+            labels.addView(text(setting.label, 15, R.color.picker_text));
+            labels.addView(text(setting.note, 11, R.color.picker_muted));
+            row.addView(labels, new LinearLayout.LayoutParams(0,
+                    ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+            Spinner spinner = new Spinner(this, Spinner.MODE_DROPDOWN);
+            spinner.setAdapter(graphicsAdapter(setting.choices));
+            spinner.setPopupBackgroundDrawable(rounded(color(R.color.picker_card), dp(8)));
+            spinner.setBackground(focusBackground(0xFF30363D));
+            spinner.setFocusable(true);
+            String current = saved.get(setting.cvars[0]);
+            int selection = 0;
+            if (current != null) {
+                for (int v = 0; v < setting.values.length; ++v) {
+                    if (setting.values[v].equals(current)) selection = v + 1;
+                }
+            }
+            spinner.setSelection(selection, false);
+            spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+                @Override
+                public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                    if (!mGraphicsLoading) writeGraphicsSettings();
+                }
+
+                @Override
+                public void onNothingSelected(AdapterView<?> parent) {}
+            });
+            mGraphicsSpinners[i] = spinner;
+            LinearLayout.LayoutParams spinnerParams =
+                    new LinearLayout.LayoutParams(dp(170), dp(44));
+            spinnerParams.leftMargin = dp(10);
+            row.addView(spinner, spinnerParams);
+            card.addView(row, matchWrap(dp(10)));
+        }
+        // Listeners fire once for the initial selection after layout; only
+        // react to changes the user makes afterwards.
+        card.post(() -> mGraphicsLoading = false);
+
+        Button reset = button("Reset to default", false);
+        reset.setOnClickListener(v -> {
+            mGraphicsLoading = true;
+            for (Spinner spinner : mGraphicsSpinners) spinner.setSelection(0, false);
+            mGraphicsLoading = false;
+            writeGraphicsSettings();
+            toast("Graphics settings reset");
+        });
+        LinearLayout.LayoutParams resetParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(44));
+        resetParams.topMargin = dp(12);
+        card.addView(reset, resetParams);
+        return card;
+    }
+
+    private ArrayAdapter<String> graphicsAdapter(String[] choices) {
+        return new ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, choices) {
+            @Override
+            public View getView(int position, View convertView, ViewGroup parent) {
+                TextView view = (TextView) super.getView(position, convertView, parent);
+                view.setTextColor(color(R.color.picker_text));
+                view.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+                view.setPadding(dp(10), 0, dp(10), 0);
+                return view;
+            }
+
+            @Override
+            public View getDropDownView(int position, View convertView, ViewGroup parent) {
+                TextView view = (TextView) super.getView(position, convertView, parent);
+                view.setTextColor(color(R.color.picker_text));
+                view.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+                view.setPadding(dp(14), dp(12), dp(14), dp(12));
+                return view;
+            }
+        };
+    }
+
+    private java.util.Map<String, String> readGraphicsSettings() {
+        java.util.Map<String, String> values = new java.util.HashMap<>();
+        File file = new File(mDataRoot, LibertyActivity.GRAPHICS_FILE);
+        if (!file.isFile()) return values;
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                new FileInputStream(file), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                line = line.trim();
+                int equals = line.indexOf('=');
+                if (line.startsWith("--") && equals > 2) {
+                    values.put(line.substring(2, equals), line.substring(equals + 1));
+                }
+            }
+        } catch (IOException e) {
+            Log.w(TAG, "reading graphics settings failed", e);
+        }
+        return values;
+    }
+
+    private void writeGraphicsSettings() {
+        StringBuilder out = new StringBuilder("# Written by the launcher's Graphics settings card.\n"
+                + "# Settings left on Default are not listed, so args.txt applies.\n");
+        for (int i = 0; i < GRAPHICS_SETTINGS.length; ++i) {
+            GraphicsSetting setting = GRAPHICS_SETTINGS[i];
+            int position = mGraphicsSpinners[i] != null ? mGraphicsSpinners[i].getSelectedItemPosition() : 0;
+            if (position <= 0 || position > setting.values.length) continue;
+            for (String cvar : setting.cvars) {
+                out.append("--").append(cvar).append('=').append(setting.values[position - 1])
+                        .append('\n');
+            }
+        }
+        try (OutputStream stream = new FileOutputStream(
+                new File(mDataRoot, LibertyActivity.GRAPHICS_FILE))) {
+            stream.write(out.toString().getBytes(StandardCharsets.UTF_8));
+        } catch (IOException e) {
+            Log.e(TAG, "writing graphics settings failed", e);
+            toast("Could not save the graphics settings: " + e.getMessage());
+        }
+    }
+
+    // Performance overlay: one checkbox per line, saved to overlay.txt, which
+    // LibertyActivity appends to the game's arguments at launch.
+    private static final String[][] OVERLAY_OPTIONS = {
+            {"gta4_overlay_fps", "FPS counter", "The game's real frame rate (how often the world moves)"},
+            {"gta4_overlay_frametime", "Frame time (ms)", "Milliseconds per game frame"},
+            {"gta4_overlay_cpu", "CPU usage", "The game's CPU usage and clock speed"},
+            {"gta4_overlay_gpu", "GPU usage", "Shows n/a if your phone does not allow apps to read it"},
+            {"gta4_overlay_memory", "Memory", "RAM used by the game"},
+            {"gta4_overlay_temperature", "Temperature", "Battery temperature"},
+    };
+    private final CheckBox[] mOverlayBoxes = new CheckBox[OVERLAY_OPTIONS.length];
+
+    private View buildOverlayCard() {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(16), dp(12), dp(16), dp(12));
+        card.setBackground(rounded(color(R.color.picker_card), dp(10)));
+        TextView title = text("Performance overlay", 18, R.color.picker_text);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        card.addView(title);
+        card.addView(text("A small box in the top-left corner during gameplay. Turn on only what "
+                + "you want to see. Applied the next time you press Play.", 12,
+                R.color.picker_muted), matchWrap(dp(2)));
+        java.util.Set<String> enabled = readOverlaySettings();
+        for (int i = 0; i < OVERLAY_OPTIONS.length; ++i) {
+            CheckBox box = new CheckBox(this);
+            box.setText(OVERLAY_OPTIONS[i][1]);
+            box.setTextColor(color(R.color.picker_text));
+            box.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+            box.setChecked(enabled.contains(OVERLAY_OPTIONS[i][0]));
+            box.setFocusable(true);
+            box.setOnCheckedChangeListener((view, checked) -> writeOverlaySettings());
+            mOverlayBoxes[i] = box;
+            card.addView(box, matchWrap(dp(4)));
+            TextView note = text(OVERLAY_OPTIONS[i][2], 11, R.color.picker_muted);
+            note.setPadding(dp(32), 0, 0, 0);
+            card.addView(note);
+        }
+        return card;
+    }
+
+    private java.util.Set<String> readOverlaySettings() {
+        java.util.Set<String> enabled = new java.util.HashSet<>();
+        File file = new File(mDataRoot, LibertyActivity.OVERLAY_FILE);
+        if (!file.isFile()) return enabled;
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                new FileInputStream(file), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                line = line.trim();
+                if (line.startsWith("--") && line.endsWith("=true")) {
+                    enabled.add(line.substring(2, line.length() - "=true".length()));
+                }
+            }
+        } catch (IOException e) {
+            Log.w(TAG, "reading overlay settings failed", e);
+        }
+        return enabled;
+    }
+
+    private void writeOverlaySettings() {
+        StringBuilder out = new StringBuilder("# Written by the launcher's Performance overlay card.\n");
+        for (int i = 0; i < OVERLAY_OPTIONS.length; ++i) {
+            boolean on = mOverlayBoxes[i] != null && mOverlayBoxes[i].isChecked();
+            out.append("--").append(OVERLAY_OPTIONS[i][0]).append(on ? "=true" : "=false").append('\n');
+        }
+        try (OutputStream stream = new FileOutputStream(
+                new File(mDataRoot, LibertyActivity.OVERLAY_FILE))) {
+            stream.write(out.toString().getBytes(StandardCharsets.UTF_8));
+        } catch (IOException e) {
+            Log.e(TAG, "writing overlay settings failed", e);
+            toast("Could not save the overlay settings: " + e.getMessage());
+        }
+    }
+
     private CrashReports.Report mCrash;
 
     /** A red card that says where the last crash report was saved, with Share. */

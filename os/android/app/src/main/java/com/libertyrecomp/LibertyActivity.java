@@ -54,6 +54,8 @@ public class LibertyActivity extends SDLActivity {
     private static final String RESOURCES = "Resources";
     private static final String RESOURCES_STAMP = ".stamp";
     private static final String DEFAULT_ARGS = "default_args.txt";
+    static final String OVERLAY_FILE = "overlay.txt";
+    static final String GRAPHICS_FILE = "graphics.txt";
 
     private String[] mArguments = new String[0];
     /** "--android_surface=WxH" in args.txt: fixed swapchain size, scaled to the panel by the display hardware. */
@@ -223,6 +225,12 @@ public class LibertyActivity extends SDLActivity {
         }
         migrateArguments(argsFile);
         List<String> arguments = new ArrayList<>(Arrays.asList(readArguments(argsFile)));
+        // Performance overlay lines chosen on the launcher (written by
+        // LauncherActivity); later arguments win, so these override args.txt.
+        // Graphics settings chosen on the launcher; like the overlay lines they
+        // come after args.txt and so override it.
+        arguments.addAll(Arrays.asList(readArguments(new File(dataRoot, GRAPHICS_FILE))));
+        arguments.addAll(Arrays.asList(readArguments(new File(dataRoot, OVERLAY_FILE))));
         // The runtime's own log (warnings and errors at the default level) goes
         // to logcat and Liberty Recompiled/logs, and ends up in crash reports.
         // Both switches together: categories without --diagnostics=true make

@@ -1,7 +1,6 @@
 #include "input/gamepad_touch_overlay.h"
 
 #include <algorithm>
-#include <atomic>
 #include <array>
 #include <cfloat>
 #include <cmath>
@@ -16,15 +15,6 @@
 #include <rex/cvar.h>
 #include <rex/input/absolute_pointer.h>
 #include <rex/input/input.h>
-
-REXCVAR_DEFINE_BOOL(gta4_show_game_fps, false, "GTA IV/Input/Touch",
-                    "Show the game's real update rate (world frames per second) in the top-right "
-                    "corner while the on-screen gamepad is visible");
-
-#if defined(__ANDROID__)
-// Measured in the title's frame-wait hook (src/android/android_frame_wait_hook.cpp).
-extern std::atomic<float> g_liberty_title_fps;
-#endif
 
 REXCVAR_DEFINE_STRING(gta4_touch_layout, "gamepad", "GTA IV/Input/Touch",
                       "On-screen touch controls: gamepad (a fixed Xbox 360 controller) or context "
@@ -305,21 +295,6 @@ bool UpdateAndDrawGamepadTouchOverlay(ImDrawList* draw, ImFont* font, float font
   }
 
   if (draw && font && font_size > 0.0f) Draw(draw, font, font_size, s);
-#if defined(__ANDROID__)
-  if (draw && font && font_size > 0.0f && REXCVAR_GET(gta4_show_game_fps)) {
-    char text[32];
-    SDL_snprintf(text, sizeof(text), "Game FPS: %.0f",
-                 g_liberty_title_fps.load(std::memory_order_relaxed));
-    const float size = height * 0.035f;
-    const ImVec2 extent = font->CalcTextSizeA(size, FLT_MAX, 0.0f, text);
-    const float margin = height * 0.02f;
-    const ImVec2 min(width - extent.x - margin * 3.0f, margin);
-    const ImVec2 max(width - margin, margin + extent.y + margin);
-    draw->AddRectFilled(min, max, IM_COL32(0, 0, 0, 160), margin * 0.5f);
-    draw->AddText(font, size, ImVec2(min.x + margin, min.y + margin * 0.5f),
-                  IM_COL32(255, 255, 255, 230), text);
-  }
-#endif
   return true;
 }
 

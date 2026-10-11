@@ -23,6 +23,10 @@
 #include <rex/logging.h>
 #include <rex/platform/env.h>
 
+#if defined(__ANDROID__)
+#include <android/log.h>
+#endif
+
 #include <toml++/toml.hpp>
 
 namespace rex::cvar {
@@ -544,6 +548,7 @@ void UnregisterChangeCallbacks(std::string_view name) {
 std::vector<std::string> Init(int argc, char** argv) {
   CLI::App app{"", ""};
   app.allow_extras();
+  app.option_defaults()->take_last();
 
   for (auto& entry : GetRegistryStorage()) {
     if (entry.type == FlagType::Boolean) {
@@ -553,13 +558,13 @@ std::vector<std::string> Init(int argc, char** argv) {
             const std::string value = count > 0 ? "true" : "false";
             if (SetFlagByName(name, value)) GetCommandLineValuesStorage()[name] = value;
           },
-          entry.description);
+          entry.description)->take_last();
     } else {
       app.add_option_function<std::string>(
           "--" + entry.name, [name = entry.name](const std::string& value) {
             if (SetFlagByName(name, value)) GetCommandLineValuesStorage()[name] = value;
           },
-          entry.description);
+          entry.description)->take_last();
     }
   }
 
@@ -569,6 +574,9 @@ std::vector<std::string> Init(int argc, char** argv) {
     // TODO(tomc): dumb workaround for the stupid chicken and its egg.
     //             dont call rex logging funcs here for now.
     fprintf(stderr, "cvar: CLI11  parse error: %s\n", e.what());
+#if defined(__ANDROID__)
+    __android_log_print(ANDROID_LOG_ERROR, "LibertyRecomp", "cvar: CLI11 parse error: %s", e.what());
+#endif
   }
 
   // Stash unrecognized --options for cvars that register later. Supported

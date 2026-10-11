@@ -10,17 +10,19 @@ name: Android APK
 
 on:
   push:
-    branches: [mali-dimensity-8400]
+    branches: [mali-dimensity-8400, main]
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       gpu:
         description: 'GPU family the APK defaults to'
         type: choice
-        options: [mali, adreno]
+        options: [mali]
         default: mali
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: android-apk-${{ github.ref }}
@@ -112,21 +114,39 @@ jobs:
         run: |
           export ANDROID_HOME="$(cygpath -u "$ANDROID_HOME")"
           export JAVA_HOME="$(cygpath -u "$JAVA_HOME")"
-          rm -f os/android/app/build/outputs/apk/debug/app-debug.apk
-          bash os/android/scripts/build_apk.sh debug
+          rm -f os/android/app/build/outputs/apk/release/app-release.apk
+          bash os/android/scripts/build_apk.sh release
 
       - name: Name the APK
         run: |
           VERSION="$(grep -o 'versionName *= *"[^"]*"' os/android/app/build.gradle.kts | head -1 | sed 's/.*"\(.*\)"/\1/')"
           [ "$LIBERTY_GPU" = "mali" ] && VERSION="$VERSION-mali"
-          cp os/android/app/build/outputs/apk/debug/app-debug.apk "LibertyRecompAndroid-$VERSION.apk"
+          cp os/android/app/build/outputs/apk/release/app-release.apk "LibertyRecompAndroid-$VERSION.apk"
           echo "APK_NAME=LibertyRecompAndroid-$VERSION.apk" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=v$VERSION" >> "$GITHUB_ENV"
           ls -la LibertyRecompAndroid-*.apk
 
-      - name: Upload the APK
+      - name: Upload the APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.APK_NAME }}
           path: ${{ env.APK_NAME }}
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/mali-dimensity-8400' || github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+        with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || env.RELEASE_TAG }}
+          name: LibertyRecomp Android ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || env.RELEASE_TAG }}
+          body: |
+            Automated release build of LibertyRecomp Android for ARM Mali GPUs.
+            - **Target**: MediaTek Dimensity 9000 (Mali-G710)
+            - **Vulkan Backend**: System Vulkan driver with Xenos GPU backend
+            - **Package**: `${{ env.APK_NAME }}`
+          files: ${{ env.APK_NAME }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

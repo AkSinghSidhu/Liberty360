@@ -225,12 +225,25 @@ public class LibertyActivity extends SDLActivity {
         }
         migrateArguments(argsFile);
         List<String> arguments = new ArrayList<>(Arrays.asList(readArguments(argsFile)));
-        // Performance overlay lines chosen on the launcher (written by
-        // LauncherActivity); later arguments win, so these override args.txt.
-        // Graphics settings chosen on the launcher; like the overlay lines they
-        // come after args.txt and so override it.
-        arguments.addAll(Arrays.asList(readArguments(new File(dataRoot, GRAPHICS_FILE))));
-        arguments.addAll(Arrays.asList(readArguments(new File(dataRoot, OVERLAY_FILE))));
+        // Performance overlay and graphics settings chosen on the launcher:
+        // Merge them so duplicate arguments are eliminated and later choices override args.txt.
+        mergeArguments(arguments, readArguments(new File(dataRoot, GRAPHICS_FILE)));
+        mergeArguments(arguments, readArguments(new File(dataRoot, OVERLAY_FILE)));
+
+        // On Mali builds, ensure --gpu_plugin=xenos is ALWAYS present so that
+        // missing dynamic rendering in Mali system drivers does not cause an immediate crash.
+        if (DriverBridge.isMaliBuild()) {
+            boolean hasGpuPlugin = false;
+            for (String arg : arguments) {
+                if (arg.startsWith("--gpu_plugin=") || arg.equals("--gpu_plugin")) {
+                    hasGpuPlugin = true;
+                    break;
+                }
+            }
+            if (!hasGpuPlugin) {
+                arguments.add(0, "--gpu_plugin=xenos");
+            }
+        }
         // The runtime's own log (warnings and errors at the default level) goes
         // to logcat and Liberty Recompiled/logs, and ends up in crash reports.
         // Both switches together: categories without --diagnostics=true make
@@ -499,6 +512,33 @@ public class LibertyActivity extends SDLActivity {
             }
         }
         return arguments.toArray(new String[0]);
+    }
+
+    /**
+     * Merges override arguments into target, replacing any earlier occurrence of
+     * the same flag to eliminate duplicates so that later overrides always win.
+     */
+    private static void mergeArguments(List<String> target, String[] overrides) {
+        for (String raw : overrides) {
+            String clean = cleanLine(raw);
+            if (clean.isEmpty() || clean.startsWith("#")) continue;
+            String key;
+            int eq = clean.indexOf('=');
+            if (eq > 0) {
+                key = clean.substring(0, eq).trim();
+            } else {
+                key = clean.trim();
+            }
+            target.removeIf(existing -> {
+                String c = cleanLine(existing);
+                if (c.equals(key)) return true;
+                if (c.startsWith(key + "=")) return true;
+                if (key.startsWith("--no-") && c.equals("--" + key.substring(5))) return true;
+                if (!key.startsWith("--no-") && key.startsWith("--") && c.equals("--no-" + key.substring(2))) return true;
+                return false;
+            });
+            target.add(clean);
+        }
     }
 
     @SuppressWarnings("deprecation")

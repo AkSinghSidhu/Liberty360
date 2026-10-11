@@ -17,6 +17,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Enumeration;
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
@@ -150,11 +151,11 @@ final class DriverBridge {
      * (value 0). A feature that could not be queried (-1) or a status without
      * the block at all counts as present: the renderer makes the final check.
      */
-    private static String missingFeatures(JSONObject features) {
+    private static String missingFeatures(JSONObject features, boolean isMali) {
         if (features == null) return "";
         StringBuilder missing = new StringBuilder();
         for (String feature : REQUIRED_FEATURES) {
-            if (isMaliBuild() && "shaderInt64".equals(feature)) {
+            if (isMali && "shaderInt64".equals(feature)) {
                 // shaderInt64 is absent on some Mali drivers (e.g. Dimensity 9000 r32p1)
                 // but is not required by Liberty native shaders.
                 continue;
@@ -196,9 +197,10 @@ final class DriverBridge {
                 bestFeatures = device.optJSONObject("features");
             }
         }
-        long minRequired = isMaliBuild() ? VULKAN_1_1 : VULKAN_1_2;
+        boolean isMali = isMaliBuild() || name.toLowerCase(Locale.ROOT).contains("mali");
+        long minRequired = isMali ? VULKAN_1_1 : VULKAN_1_2;
         if (best >= minRequired) {
-            String missing = missingFeatures(bestFeatures);
+            String missing = missingFeatures(bestFeatures, isMali);
             if (missing.isEmpty()) return null;
             return "This device's GPU (" + name + ") has Vulkan " + (best >> 22) + "."
                     + ((best >> 12) & 0x3FF) + " but its driver lacks "
@@ -209,9 +211,9 @@ final class DriverBridge {
         String fallbackFrom = json.optString("fallback_from");
         return "This device's GPU (" + name + ") only offers Vulkan " + (best >> 22) + "."
                 + ((best >> 12) & 0x3FF) + " through its own driver, and the game needs Vulkan "
-                + (isMaliBuild() ? "1.1." : "1.2.")
+                + (isMali ? "1.1." : "1.2.")
                 + (fallbackFrom.isEmpty()
-                        ? (isMaliBuild()
+                        ? (isMali
                                 ? "\n\nThe phone's system GPU driver is too old for the game. Updating the "
                                         + "system software may bring a newer driver."
                                 : "\n\nIf driver.txt says \"system\", delete it to use the bundled Turnip driver.")

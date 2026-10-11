@@ -22,7 +22,7 @@ val sdlJavaDir = rootProject.file(
 // TU_DEBUG setting, and tags the version name with "-mali". Everything else is
 // identical, so an Adreno and a Mali APK differ only in first-launch defaults;
 // the player can still switch drivers on the launcher either way.
-val libertyGpu = (project.findProperty("libertyGpu") as String? ?: "adreno").lowercase()
+val libertyGpu = (project.findProperty("libertyGpu") as String? ?: "mali").lowercase()
 require(libertyGpu == "adreno" || libertyGpu == "mali") {
     "-PlibertyGpu must be 'adreno' or 'mali', got '$libertyGpu'"
 }

@@ -15,5 +15,5 @@ sdk.dir=$(cygpath -m "$ANDROID_HOME" 2>/dev/null || echo "$ANDROID_HOME")
 EOF
 
 cd "$APP_DIR"
-./gradlew --no-daemon "$TASK" "-PlibertyGpu=${LIBERTY_GPU:-adreno}"
+./gradlew --no-daemon "$TASK" "-PlibertyGpu=${LIBERTY_GPU:-mali}"
 ls -la "$APP_DIR/app/build/outputs/apk/$VARIANT/"

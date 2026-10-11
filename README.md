@@ -40,7 +40,10 @@ The recompiled game runs natively on arm64 Android devices without an emulator. 
 5. **Android NDK C++ Fallbacks:**
    - Added polyfills for missing Android NDK libc++ features (`std::jthread`, `std::stop_token`, floating-point `std::from_chars`, and `std::atomic_ref`).
 
-6. **Automated Host Toolchain & NDK Build Scripts:**
+6. **CLI11 CVar Deduplication & Custom Launcher Settings:**
+   - Enabled `take_last` option policy in `cvar.cpp` and deduplication in `LibertyActivity.java`, allowing custom graphics settings in the launcher (resolution scaling, FPS limit, shadow quality, traffic density) to seamlessly override base arguments without parse errors.
+
+7. **Automated Host Toolchain & NDK Build Scripts:**
    - Automated detection and building of required host tools (`recomp-clang`, `direct_calls`, `extract-xiso`) in `build_native.sh`, `env.sh`, and `setup_host_tools.sh`.
 
 ---

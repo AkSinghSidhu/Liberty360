@@ -1,19 +1,26 @@
-# Mali build (Dimensity 8400 and other Mali / Immortalis GPUs)
+# Mali build (Dimensity 9000, Dimensity 8400 and other Mali / Immortalis GPUs)
 
-> [!WARNING]
-> **Untested.** This build was prepared without access to a Mali device. The upstream port has
-> only ever been run on Adreno. Everything below describes what the Mali build changes and what to
-> check first; nothing here is a confirmed result. Please report what you see in
-> [Issues](https://github.com/vaduur/LibertyRecompAndroid/issues).
+> [!NOTE]
+> **Tested & In-Game:** Verified working in-game on the **MediaTek Dimensity 9000 (Mali-G710 MC10)**
+> (OnePlus Nord 3 5G, Android 16, stock Vulkan 1.1.177 driver) and **Dimensity 8400 (Mali-G720 MC7)**
+> (Xiaomi, Android 16).
+> Report logs and findings in [Issues](https://github.com/vaduur/LibertyRecompAndroid/issues).
 
-Target: MediaTek **Dimensity 8400** (Mali-G720 MC7), Android 14 or newer. Other Mali and Immortalis
-parts with a Vulkan 1.2+ driver should behave the same way.
+Target: MediaTek **Dimensity 9000** (Mali-G710 MC10), **Dimensity 8400** (Mali-G720 MC7), and other ARM Mali/Immortalis devices running Android 14 or newer.
 
 ## Why the normal build does not work
 
 The default APK loads a bundled **Mesa Turnip** Vulkan driver through libadrenotools. Turnip exists
-only for Adreno GPUs, so on a Mali phone it cannot load. The game also needs **Vulkan 1.2** (plus
-dynamic rendering), which on Mali has to come from the phone's own driver.
+only for Adreno GPUs, so on a Mali phone it cannot load.
+
+Stock vendor drivers on many MediaTek Mali phones (such as the Dimensity 9000) also report **Vulkan 1.1**
+(`1.1.177`) and lack `VK_KHR_dynamic_rendering` (`vkCmdBeginRendering`), `vertexPipelineStoresAndAtomics`,
+geometry shaders, and non-solid fill modes.
+
+The Mali build incorporates:
+- Vulkan 1.1 bypass in `DriverBridge.java` and `driver_proxy.cpp`.
+- ReXGlue feature relaxation (`vertexPipelineStoresAndAtomics`, geometry shader, and fill mode solid emulation).
+- Standard Vulkan 1.1 renderpass support via the `--gpu_plugin=xenos` backend.
 
 The app already had a *system driver* mode and a fallback to it (0.5.6.2). The Mali build makes
 that the default instead of a fallback.

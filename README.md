@@ -7,8 +7,8 @@
 > [!WARNING]
 > **Experimental, work in progress.** This is a fork of
 > [LibertyRecompAndroid](https://github.com/vaduur/LibertyRecompAndroid) that gets the game running
-> on **ARM Mali GPUs**, starting with the **MediaTek Dimensity 8400 (Mali-G720 MC7)**. It is tested
-> on one phone only. Expect bugs, crashes and rough edges. Use the original project if you have a
+> on **ARM Mali GPUs**, tested on the **MediaTek Dimensity 8400 (Mali-G720 MC7)** and
+> **MediaTek Dimensity 9000 (Mali-G710 MC10)**. Expect bugs, crashes and rough edges. Use the original project if you have a
 > Snapdragon (Adreno) device.
 
 An Android port of [Liberty Recompiled](https://github.com/OZORDI/LibertyRecomp), the static
@@ -18,39 +18,47 @@ phone's own Vulkan driver; the original targets Adreno GPUs through a bundled Me
 
 ## Mali version status
 
-Tested on one device: a Xiaomi phone with a **Dimensity 8400 (Mali-G720 MC7)**, Android 16,
-Mali driver r49p1.
+### Tested Devices:
+- **MediaTek Dimensity 9000 (Mali-G710 MC10)**:
+  - Tested on **OnePlus Nord 3 5G** (Android 16, vendor Mali driver `vulkan.mali.so` reporting Vulkan 1.1.177).
+  - **In-Game Status:** Fully boots, loads save/intro, enters gameplay. 3D world, geometry, lighting, HUD, and on-screen controls render properly. Audio works (~95% fine via AAudio). Currently runs at **5–6 FPS** using the `--gpu_plugin=xenos` backend on the stock Vulkan 1.1 driver (optimization WIP).
+- **MediaTek Dimensity 8400 (Mali-G720 MC7)**:
+  - Tested on **Xiaomi** (Android 16, Mali driver r49p1).
+  - **In-Game Status:** Boots and plays at **10–25 FPS**, depending on scene complexity.
 
-What works so far:
+### What works so far:
+- The game installs, boots, loads saves, and runs in 3D gameplay: the world renders with textures, lighting, HUD, subtitles, and touch controls work.
+- In-game audio plays properly (tested ~95% clean via low-latency AAudio).
+- Compatible with vendor Mali drivers even when limited to **Vulkan 1.1** (via the Xenos GPU plugin).
 
-- The game installs, boots and runs: the world renders with textures, and the HUD, subtitles,
-  lights and the on-screen gamepad work.
-- The APK builds automatically with GitHub Actions on the `mali-dimensity-8400` branch.
-  Experimental builds are published on the [Releases](../../releases) page.
+### Known limitations:
+- **Low Framerate on Vulkan 1.1 (Dimensity 9000):** 5–6 FPS on the Dimensity 9000 due to unoptimized primitive fallback paths and software translation in the Xenos backend on Vulkan 1.1 drivers. Performance tuning is actively in progress.
+- **User clip planes are skipped:** Mali drivers lack `shaderClipDistance`, so some reflections or cut-off geometry may look slightly off.
+- **Higher memory use and possible texture load stutter:** Compressed textures (DXT/BC) are decoded to RGBA8 on the CPU because Mali hardware lacks native BC compression support.
+- **Vulkan Dynamic Rendering absent on stock drivers:** Stock vendor drivers for chips like the Dimensity 9000 only expose Vulkan 1.1.177 and lack `VK_KHR_dynamic_rendering`, preventing `gta4-native` from running without a renderpass translation layer.
 
-Known limitations:
+### Changes made for Mali:
 
-- **Tested on a single Mali device.** Other Mali / Immortalis GPUs may behave differently.
-- **User clip planes are skipped** (see below), so some reflections or cut-off geometry may look
-  wrong.
-- **Higher memory use and possible stutter when textures load**, because compressed textures are
-  decoded on the CPU (see below).
-- **Performance is still poor:** about **10–25 FPS** on the Dimensity 8400, depending on the
-  area. It has not been tuned for Mali yet.
+1. **Vulkan 1.1 Support & Driver Bypasses (Dimensity 9000):**
+   - Stock MediaTek / Mali drivers on Android often report only Vulkan 1.1.177 and lack Vulkan 1.2.
+   - Relaxed the hard Vulkan 1.2 check in `DriverBridge.java` and `driver_proxy.cpp` to allow devices on Vulkan 1.1 to initialize the driver proxy without throwing fatal initialization dialogs.
+   - Added `--gpu_plugin=xenos` compatibility to render using standard Vulkan 1.1 `VkRenderPass` and `VkFramebuffer` when `VK_KHR_dynamic_rendering` is unavailable.
 
-Changes made for Mali:
+2. **ReXGlue Vulkan Hardware Feature Relaxations:**
+   - In `vulkan_device.cpp` and `command_processor.cpp`, changed missing `vertexPipelineStoresAndAtomics` checks from fatal crashes (`return nullptr`) to non-fatal warnings.
+   - Disabled mandatory assertions for `vulkan_require_geometry_shader` and `vulkan_require_fill_mode_non_solid` on Android, activating ReXGlue's fallback emulation paths so Mali drivers without geometry shader or non-solid fill modes do not abort startup.
 
-- **Android C++ library fixes.** The NDK's libc++ lacks `std::jthread`/`std::stop_token`,
-  floating-point `std::from_chars` and `std::atomic_ref`. Small fallbacks were added so the native
-  libraries compile for Android.
-- **No `shaderClipDistance` on Mali.** Mali drivers do not offer clip distances, which the game's
-  shaders use. Shaders are rewritten as they load: clip-distance outputs become ordinary unused
-  outputs, so they are valid on Mali (all 650 affected shaders pass the Vulkan validator). User
-  clip planes are skipped as a result.
-- **No BC (DXT) texture compression on Mali.** The game's DXT1/3/5 textures are created as BC
-  textures, which Mali cannot sample, so almost the whole world failed to draw. When the GPU lacks
-  BC support, those textures are now decoded to RGBA8 on the CPU as they load. This uses 4–8x more
-  texture memory. Converting to ASTC (Mali's native format) would be the better long-term fix.
+3. **Shader Clip Distance Rewriting:**
+   - Mali drivers do not offer `shaderClipDistance`, which GTA IV shaders rely on. Shaders are rewritten dynamically during load: clip-distance outputs are converted into regular unused outputs (all ~650 shaders pass Vulkan validation).
+
+4. **BC (DXT) Texture CPU Decompression:**
+   - The game's DXT1/3/5 textures cannot be sampled natively by Mali hardware. Shaders and textures missing hardware BC support are decompressed to RGBA8 on the CPU during asset loading.
+
+5. **Android NDK C++ Fallbacks:**
+   - Added fallbacks for missing libc++ features in Android NDK (`std::jthread`, `std::stop_token`, floating-point `std::from_chars`, and `std::atomic_ref`).
+
+6. **Automated Host Toolchain & NDK Build Scripts:**
+   - Fixed host tool detection in `build_native.sh`, `env.sh`, and `setup_host_tools.sh` to auto-compile and point to native Linux tools (`recomp-clang`, `direct_calls`, `extract-xiso`) without manual intervention.
 
 Devices with an Adreno GPU take the original code paths; the fallbacks above only switch on when
 the GPU lacks the feature.

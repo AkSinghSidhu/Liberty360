@@ -5,11 +5,11 @@
 # LibertyRecompAndroid — Mali Version (WIP)
 
 > [!WARNING]
-> **Work in progress.** This is a fork of
-> [LibertyRecompAndroid](https://github.com/vaduur/LibertyRecompAndroid) that is trying to get the
-> game running on **ARM Mali GPUs**, starting with the **MediaTek Dimensity 8400 (Mali-G720 MC7)**.
-> It boots and reaches gameplay, but it is **not playable yet**. Use the original project if you
-> have a Snapdragon (Adreno) device.
+> **Experimental, work in progress.** This is a fork of
+> [LibertyRecompAndroid](https://github.com/vaduur/LibertyRecompAndroid) that gets the game running
+> on **ARM Mali GPUs**, starting with the **MediaTek Dimensity 8400 (Mali-G720 MC7)**. It is tested
+> on one phone only. Expect bugs, crashes and rough edges. Use the original project if you have a
+> Snapdragon (Adreno) device.
 
 An Android port of [Liberty Recompiled](https://github.com/OZORDI/LibertyRecomp), the static
 recompilation of the Xbox 360 version of Grand Theft Auto IV. It runs the recompiled game natively
@@ -23,30 +23,41 @@ Mali driver r49p1.
 
 What works so far:
 
+- The game installs, boots and runs: the world renders with textures, and the HUD, subtitles,
+  lights and the on-screen gamepad work.
 - The APK builds automatically with GitHub Actions on the `mali-dimensity-8400` branch.
-- The game installs, boots and reaches the first mission. The HUD, subtitles, lights and the
-  on-screen gamepad work.
+  Experimental builds are published on the [Releases](../../releases) page.
 
-What is broken:
+Known limitations:
 
-- **Most of the world does not render correctly.** Roads and buildings show as flat, untextured
-  shapes and the radar is only partly drawn. This is being investigated with debug logs.
-- Performance on Mali has not been measured or tuned yet.
+- **Tested on a single Mali device.** Other Mali / Immortalis GPUs may behave differently.
+- **User clip planes are skipped** (see below), so some reflections or cut-off geometry may look
+  wrong.
+- **Higher memory use and possible stutter when textures load**, because compressed textures are
+  decoded on the CPU (see below).
+- **Performance is still poor:** about **10–25 FPS** on the Dimensity 8400, depending on the
+  area. It has not been tuned for Mali yet.
 
-Changes made for Mali so far:
+Changes made for Mali:
 
 - **Android C++ library fixes.** The NDK's libc++ lacks `std::jthread`/`std::stop_token`,
   floating-point `std::from_chars` and `std::atomic_ref`. Small fallbacks were added so the native
   libraries compile for Android.
 - **No `shaderClipDistance` on Mali.** Mali drivers do not offer clip distances, which the game's
-  shaders use. Shaders are now rewritten as they load: clip-distance outputs become ordinary unused
-  outputs, so the shaders are valid on Mali (all 650 affected shaders pass the Vulkan validator).
-  User clip planes are skipped, so some reflections or cut geometry may look wrong. Adreno devices
-  that support clip distances are not affected.
+  shaders use. Shaders are rewritten as they load: clip-distance outputs become ordinary unused
+  outputs, so they are valid on Mali (all 650 affected shaders pass the Vulkan validator). User
+  clip planes are skipped as a result.
+- **No BC (DXT) texture compression on Mali.** The game's DXT1/3/5 textures are created as BC
+  textures, which Mali cannot sample, so almost the whole world failed to draw. When the GPU lacks
+  BC support, those textures are now decoded to RGBA8 on the CPU as they load. This uses 4–8x more
+  texture memory. Converting to ASTC (Mali's native format) would be the better long-term fix.
 
-Feedback and logs from other Mali / Dimensity devices are welcome. When reporting, attach
-`Android/data/com.libertyrecomp/files/last_launch.txt` and, if the game starts, a log from
-**Play (Debug Log)** (`files/debug_logs/`).
+Devices with an Adreno GPU take the original code paths; the fallbacks above only switch on when
+the GPU lacks the feature.
+
+Feedback and logs from other Mali / Dimensity devices are welcome in [Issues](../../issues). When
+reporting, attach `Android/data/com.libertyrecomp/files/last_launch.txt` and, if the game starts,
+a log from **Play (Debug Log)** (`files/debug_logs/`).
 
 ---
 

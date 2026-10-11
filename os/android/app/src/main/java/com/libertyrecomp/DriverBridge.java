@@ -80,7 +80,9 @@ final class DriverBridge {
                                     String driverFilename, boolean custom,
                                     boolean allowSystemFallback);
 
-    /** VK_API_VERSION_1_2: the native renderer's minimum. */
+    /** VK_API_VERSION_1_1: minimum supported with extensions on Mali. */
+    private static final long VULKAN_1_1 = (1L << 22) | (1L << 12);
+    /** VK_API_VERSION_1_2: the native renderer's standard minimum. */
     private static final long VULKAN_1_2 = (1L << 22) | (2L << 12);
 
     /** Loads and initializes the proxy. Returns the native status JSON. */
@@ -152,6 +154,11 @@ final class DriverBridge {
         if (features == null) return "";
         StringBuilder missing = new StringBuilder();
         for (String feature : REQUIRED_FEATURES) {
+            if (isMaliBuild() && "shaderInt64".equals(feature)) {
+                // shaderInt64 is absent on some Mali drivers (e.g. Dimensity 9000 r32p1)
+                // but is not required by Liberty native shaders.
+                continue;
+            }
             if (features.optInt(feature, -1) == 0) {
                 if (missing.length() > 0) missing.append(", ");
                 missing.append(feature);
@@ -189,17 +196,20 @@ final class DriverBridge {
                 bestFeatures = device.optJSONObject("features");
             }
         }
-        if (best >= VULKAN_1_2) {
+        long minRequired = isMaliBuild() ? VULKAN_1_1 : VULKAN_1_2;
+        if (best >= minRequired) {
             String missing = missingFeatures(bestFeatures);
             if (missing.isEmpty()) return null;
-            return "This device's GPU (" + name + ") has Vulkan 1.2 but its driver lacks "
+            return "This device's GPU (" + name + ") has Vulkan " + (best >> 22) + "."
+                    + ((best >> 12) & 0x3FF) + " but its driver lacks "
                     + "features the game's renderer requires: " + missing + "."
                     + "\n\nA newer system update may add them. Please attach the launch report "
                     + "when reporting this.";
         }
         String fallbackFrom = json.optString("fallback_from");
         return "This device's GPU (" + name + ") only offers Vulkan " + (best >> 22) + "."
-                + ((best >> 12) & 0x3FF) + " through its own driver, and the game needs Vulkan 1.2."
+                + ((best >> 12) & 0x3FF) + " through its own driver, and the game needs Vulkan "
+                + (isMaliBuild() ? "1.1." : "1.2.")
                 + (fallbackFrom.isEmpty()
                         ? (isMaliBuild()
                                 ? "\n\nThe phone's system GPU driver is too old for the game. Updating the "

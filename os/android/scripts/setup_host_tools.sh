@@ -13,6 +13,18 @@ GLSLANG_URL="https://github.com/KhronosGroup/glslang/releases/download/16.6.0/gl
 mkdir -p "$DEST"
 cd "$DEST"
 
+if [ "$(uname -s)" = "Linux" ]; then
+  if [ ! -x dxc/bin/x64/dxc ] && [ ! -x dxc/bin/dxc ]; then
+    echo "DXC not found in $DEST/dxc"
+    exit 1
+  fi
+  dxc_bin=dxc/bin/x64/dxc
+  [ -x "$dxc_bin" ] || dxc_bin=dxc/bin/dxc
+  "$dxc_bin" --version
+  glslang/bin/glslangValidator --version | head -1
+  exit 0
+fi
+
 if [ ! -x dxc/bin/x64/dxc.exe ]; then
   curl -fsSL -o dxc.zip "$DXC_URL"
   # The archive uses backslash separators, which unzip mangles.

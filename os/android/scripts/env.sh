@@ -7,6 +7,17 @@ _scripts_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export APP_DIR="$(cd "$_scripts_dir/.." && pwd)"
 export REPO="$(cd "$APP_DIR/../.." && pwd)"
 
+if ! command -v cygpath >/dev/null 2>&1; then
+  cygpath() {
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        -m|-u|-w) shift ;;
+        *) printf '%s\n' "$1"; return ;;
+      esac
+    done
+  }
+fi
+
 if [ -z "${ANDROID_HOME:-}" ]; then
   if [ -n "${LOCALAPPDATA:-}" ]; then
     ANDROID_HOME="$(cygpath -u "$LOCALAPPDATA")/Android/Sdk"
@@ -16,9 +27,26 @@ if [ -z "${ANDROID_HOME:-}" ]; then
 fi
 export ANDROID_HOME
 export ANDROID_SDK_ROOT="$ANDROID_HOME"
+
+if [ -z "${NDK_VER:-}" ] && [ ! -d "$ANDROID_HOME/ndk/29.0.14206865" ]; then
+  _found_ndk="$(ls -1d "$ANDROID_HOME/ndk/"* 2>/dev/null | sort -V | tail -n 1)"
+  if [ -n "$_found_ndk" ]; then
+    NDK_VER="$(basename "$_found_ndk")"
+  fi
+fi
 export NDK_VER="${NDK_VER:-29.0.14206865}"
 export ANDROID_NDK="${ANDROID_NDK:-$ANDROID_HOME/ndk/$NDK_VER}"
-export JAVA_HOME="${JAVA_HOME:-/c/Program Files/Android/Android Studio/jbr}"
+
+if [ -z "${JAVA_HOME:-}" ] || [ ! -d "${JAVA_HOME:-}" ]; then
+  if [ -d "/usr/lib/jvm/java-17-openjdk" ]; then
+    JAVA_HOME="/usr/lib/jvm/java-17-openjdk"
+  elif command -v java >/dev/null 2>&1; then
+    JAVA_HOME="$(dirname "$(dirname "$(readlink -f "$(which java)")")")"
+  else
+    JAVA_HOME="/c/Program Files/Android/Android Studio/jbr"
+  fi
+fi
+export JAVA_HOME
 
 case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*) _host=windows-x86_64 ;;

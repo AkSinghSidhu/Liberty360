@@ -4,6 +4,9 @@
 include_guard(GLOBAL)
 
 function(liberty_apply_dependency_patches repository_root)
+    if(ANDROID OR CMAKE_SYSTEM_NAME STREQUAL "Android" OR "${LIBERTY_RECOMP_TARGET_PLATFORM}" STREQUAL "android")
+        return()
+    endif()
     find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter)
     set(setup_script "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../tools/setup_repo.py")
     set(arguments --root "${repository_root}"
@@ -26,7 +29,9 @@ function(liberty_require_dependency_sources repository_root)
         glue/rexglue-sdk-main/thirdparty/fmt/CMakeLists.txt
         glue/rexglue-sdk-main/thirdparty/FFmpeg/config.h
         glue/rexglue-sdk-main/gta4-recomp/generated/sources.cmake)
-    if(APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    if(ANDROID OR CMAKE_SYSTEM_NAME STREQUAL "Android" OR "${LIBERTY_RECOMP_TARGET_PLATFORM}" STREQUAL "android")
+        # Android targets only the pure Graine RexGlue consumer in glue/
+    elseif(APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
         list(APPEND required thirdparty/MoltenVK/MoltenVK/README.md
             thirdparty/MoltenVK/SPIRV-Cross/CMakeLists.txt)
     else()

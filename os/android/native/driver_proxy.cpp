@@ -215,16 +215,31 @@ std::string CapabilityJson(VkInstance instance, VkPhysicalDevice device, uint32_
     sample_rate = base.sampleRateShading ? 1 : 0;
     blend = base.independentBlend ? 1 : 0;
   }
-  if (features2 && requested_api >= VK_API_VERSION_1_2 && device_api >= VK_API_VERSION_1_2) {
-    VkPhysicalDeviceVulkan12Features v12{};
-    v12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
-    VkPhysicalDeviceFeatures2 extended{};
-    extended.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-    extended.pNext = &v12;
-    features2(device, &extended);
-    runtime_array = v12.runtimeDescriptorArray ? 1 : 0;
-    partially_bound = v12.descriptorBindingPartiallyBound ? 1 : 0;
-    device_address = v12.bufferDeviceAddress ? 1 : 0;
+  if (features2) {
+    if (requested_api >= VK_API_VERSION_1_2 && device_api >= VK_API_VERSION_1_2) {
+      VkPhysicalDeviceVulkan12Features v12{};
+      v12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+      VkPhysicalDeviceFeatures2 extended{};
+      extended.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+      extended.pNext = &v12;
+      features2(device, &extended);
+      runtime_array = v12.runtimeDescriptorArray ? 1 : 0;
+      partially_bound = v12.descriptorBindingPartiallyBound ? 1 : 0;
+      device_address = v12.bufferDeviceAddress ? 1 : 0;
+    } else if (device_api >= VK_API_VERSION_1_1) {
+      VkPhysicalDeviceBufferDeviceAddressFeaturesKHR bda{};
+      bda.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES_KHR;
+      VkPhysicalDeviceDescriptorIndexingFeaturesEXT desc{};
+      desc.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES_EXT;
+      bda.pNext = &desc;
+      VkPhysicalDeviceFeatures2 extended{};
+      extended.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+      extended.pNext = &bda;
+      features2(device, &extended);
+      runtime_array = desc.runtimeDescriptorArray ? 1 : 0;
+      partially_bound = desc.descriptorBindingPartiallyBound ? 1 : 0;
+      device_address = bda.bufferDeviceAddress ? 1 : 0;
+    }
   }
   return "{\"shaderInt64\":" + flag(int64) + ",\"depthClamp\":" + flag(clamp) +
          ",\"shaderClipDistance\":" + flag(clip) + ",\"sampleRateShading\":" + flag(sample_rate) +

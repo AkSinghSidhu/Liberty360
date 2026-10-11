@@ -17,6 +17,24 @@ python "$APP_DIR/scripts/materialize_symlinks.py"
 # Snapdragon 865 and every Android 10+ arm64 device we target are ARMv8.2:
 # inline LSE atomics instead of outline-atomic calls, and native ELF TLS
 # (API 29+) instead of emulated TLS. Both are hot in the guest thread.
+HOST_SPIRV_VAL="$ANDROID_NDK/shader-tools/linux-x86_64/spirv-val"
+[ -f "$HOST_SPIRV_VAL" ] || HOST_SPIRV_VAL="$ANDROID_NDK/shader-tools/windows-x86_64/spirv-val.exe"
+[ -f "$HOST_SPIRV_VAL" ] || HOST_SPIRV_VAL="$(which spirv-val 2>/dev/null || true)"
+
+HOST_GLSLANG="$REPO/out/host-tools/glslang/bin/glslangValidator"
+[ -f "$HOST_GLSLANG" ] || HOST_GLSLANG="$REPO/out/host-tools/glslang/bin/glslangValidator.exe"
+[ -f "$HOST_GLSLANG" ] || HOST_GLSLANG="$(which glslangValidator 2>/dev/null || true)"
+
+HOST_DXC_DIR="$REPO/out/host-tools/dxc/bin/x64"
+[ -d "$HOST_DXC_DIR" ] || HOST_DXC_DIR="$REPO/out/host-tools/dxc/bin"
+
+HOST_DXC_BIN="$HOST_DXC_DIR/dxc-linux"
+[ -f "$HOST_DXC_BIN" ] || HOST_DXC_BIN="$HOST_DXC_DIR/dxc"
+[ -f "$HOST_DXC_BIN" ] || HOST_DXC_BIN="$HOST_DXC_DIR/dxc.exe"
+
+HOST_DXC_LIB="$REPO/out/host-tools/dxc/lib/x64"
+[ -d "$HOST_DXC_LIB" ] || HOST_DXC_LIB="$REPO/out/host-tools/dxc/lib"
+
 CPU_FLAGS="-march=armv8.2-a -fno-emulated-tls"
 if [ ! -f "$BUILD_DIR/build.ninja" ] || ! grep -q -- "-fno-emulated-tls" "$BUILD_DIR/CMakeCache.txt"; then
   echo "== configuring $BUILD_TYPE in $BUILD_DIR"
@@ -33,9 +51,10 @@ if [ ! -f "$BUILD_DIR/build.ninja" ] || ! grep -q -- "-fno-emulated-tls" "$BUILD
     -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
     -DREXGLUE_ENABLE_TRACY=OFF \
-    -DGTA4_NATIVE_SPIRV_VAL="$(cygpath -m "$ANDROID_NDK/shader-tools/windows-x86_64/spirv-val.exe")" \
-    -DGTA4_NATIVE_GLSLANG_VALIDATOR="$(cygpath -m "$REPO/out/host-tools/glslang/bin/glslangValidator.exe")" \
-    -DGTA4_NATIVE_DXC_LIBRARY_PATH="$(cygpath -m "$REPO/out/host-tools/dxc/bin/x64")"
+    -DGTA4_NATIVE_SPIRV_VAL="$(cygpath -m "$HOST_SPIRV_VAL")" \
+    -DGTA4_NATIVE_GLSLANG_VALIDATOR="$(cygpath -m "$HOST_GLSLANG")" \
+    -DGTA4_NATIVE_DXC="$(cygpath -m "$HOST_DXC_BIN")" \
+    -DGTA4_NATIVE_DXC_LIBRARY_PATH="$(cygpath -m "$HOST_DXC_LIB")"
 fi
 
 # Calls between unhooked recompiled functions bypass the weak sub_X aliases so

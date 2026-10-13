@@ -103,9 +103,9 @@ final class DriverBridge {
                 custom = true;
                 Log.i(TAG, "custom driver " + name + " library=" + library);
             } catch (IOException | RuntimeException e) {
-                Log.e(TAG, "custom driver unusable, using the bundled Turnip", e);
-                mode = TURNIP;
-                custom = true;
+                Log.e(TAG, "custom driver unusable, using the default driver", e);
+                mode = defaultMode();
+                custom = !SYSTEM.equals(mode);
             }
         }
         if (custom && LIBRARY.equals(library)) {

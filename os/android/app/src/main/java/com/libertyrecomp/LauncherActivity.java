@@ -1269,9 +1269,9 @@ public class LauncherActivity extends Activity {
         if (!mode.startsWith(DriverBridge.CUSTOM_PREFIX)) return;
         File dir = new File(customRoot(), mode.substring(DriverBridge.CUSTOM_PREFIX.length()));
         deleteRecursively(dir);
-        writeDriverMode(DriverBridge.TURNIP);
+        writeDriverMode(DriverBridge.defaultMode());
         refreshDrivers();
-        toast("Driver removed. Using the bundled Turnip.");
+        toast("Driver removed. Using the " + (DriverBridge.isMaliBuild() ? "system driver" : "bundled Turnip") + ".");
     }
 
     @SuppressWarnings("deprecation")

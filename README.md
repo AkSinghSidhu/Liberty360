@@ -119,6 +119,7 @@ The resulting APK will be located at `os/android/app/build/outputs/apk/release/a
 
 ## Credits & Acknowledgements
 
+- [LibertyRecompAndroidMaliVer](https://github.com/ZackyJade123/LibertyRecompAndroidMaliVer) by [ZackyJade123](https://github.com/ZackyJade123) (prollynotzjay) for the original Android Mali port groundwork.
 - [Liberty Recompiled](https://github.com/OZORDI/LibertyRecomp) by OZORDI and contributors.
 - [ReXGlue SDK](https://github.com/rexglue/rexglue-sdk).
 - [SDL3](https://github.com/libsdl-org/SDL) for cross-platform Android activity, windowing, and audio.

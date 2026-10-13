@@ -225,10 +225,12 @@ public class LibertyActivity extends SDLActivity {
         }
         migrateArguments(argsFile);
         List<String> arguments = new ArrayList<>(Arrays.asList(readArguments(argsFile)));
-        // Performance overlay and graphics settings chosen on the launcher:
-        // Merge them so duplicate arguments are eliminated and later choices override args.txt.
-        mergeArguments(arguments, readArguments(new File(dataRoot, GRAPHICS_FILE)));
-        mergeArguments(arguments, readArguments(new File(dataRoot, OVERLAY_FILE)));
+        // Performance overlay lines chosen on the launcher (written by
+        // LauncherActivity); later arguments win, so these override args.txt.
+        // Graphics settings chosen on the launcher; like the overlay lines they
+        // come after args.txt and so override it.
+        arguments.addAll(Arrays.asList(readArguments(new File(dataRoot, GRAPHICS_FILE))));
+        arguments.addAll(Arrays.asList(readArguments(new File(dataRoot, OVERLAY_FILE))));
 
         // On Mali builds, ensure --gpu_plugin=xenos is ALWAYS present so that
         // missing dynamic rendering in Mali system drivers does not cause an immediate crash.
@@ -280,7 +282,7 @@ public class LibertyActivity extends SDLActivity {
                 Log.w(TAG, "bad " + argument);
             }
         }
-        mArguments = arguments.toArray(new String[0]);
+        mArguments = withoutDuplicateOptions(arguments).toArray(new String[0]);
         String driver = readFirstLine(new File(dataRoot, "driver.txt"));
         mDriverText = driver;
         String lower = driver == null ? "" : driver.toLowerCase(Locale.ROOT);
@@ -515,30 +517,38 @@ public class LibertyActivity extends SDLActivity {
     }
 
     /**
-     * Merges override arguments into target, replacing any earlier occurrence of
-     * the same flag to eliminate duplicates so that later overrides always win.
+     * The runtime's command-line parser (CLI11) rejects an option given twice,
+     * and on that error it ignores the whole command line. graphics.txt and
+     * overlay.txt repeat options that args.txt already sets, so keep only the
+     * last occurrence of each option: launcher choices override args.txt.
+     * "--no-name" counts as the same option as "--name".
      */
-    private static void mergeArguments(List<String> target, String[] overrides) {
-        for (String raw : overrides) {
-            String clean = cleanLine(raw);
-            if (clean.isEmpty() || clean.startsWith("#")) continue;
-            String key;
-            int eq = clean.indexOf('=');
-            if (eq > 0) {
-                key = clean.substring(0, eq).trim();
-            } else {
-                key = clean.trim();
-            }
-            target.removeIf(existing -> {
-                String c = cleanLine(existing);
-                if (c.equals(key)) return true;
-                if (c.startsWith(key + "=")) return true;
-                if (key.startsWith("--no-") && c.equals("--" + key.substring(5))) return true;
-                if (!key.startsWith("--no-") && key.startsWith("--") && c.equals("--no-" + key.substring(2))) return true;
-                return false;
-            });
-            target.add(clean);
+    static List<String> withoutDuplicateOptions(List<String> arguments) {
+        java.util.Map<String, Integer> lastIndex = new java.util.HashMap<>();
+        for (int i = 0; i < arguments.size(); ++i) {
+            String key = optionKey(arguments.get(i));
+            if (key != null) lastIndex.put(key, i);
         }
+        List<String> result = new ArrayList<>(arguments.size());
+        for (int i = 0; i < arguments.size(); ++i) {
+            String argument = arguments.get(i);
+            String key = optionKey(argument);
+            if (key == null || lastIndex.get(key) == i) {
+                result.add(argument);
+            } else {
+                Log.i(TAG, "dropping overridden argument " + argument);
+            }
+        }
+        return result;
+    }
+
+    private static String optionKey(String argument) {
+        if (argument == null || !argument.startsWith("--")) return null;
+        String name = argument.substring(2);
+        int equals = name.indexOf('=');
+        if (equals >= 0) name = name.substring(0, equals);
+        if (name.startsWith("no-")) name = name.substring(3);
+        return name.trim().toLowerCase(Locale.ROOT);
     }
 
     @SuppressWarnings("deprecation")

@@ -41,8 +41,11 @@ android {
         // 28: ASharedMemory (26) for guest memory and AAudio (27) for audio.
         minSdk        = 29
         targetSdk     = 35
-        versionCode   = 14
-        versionName   = "0.5.8" + (if (libertyGpu == "mali") "-mali" else "")
+        versionCode   = 15
+        // Shown as e.g. 0.5.8-mali-alpha-1.3. The workflow reads both the
+        // base version and versionSuffix to name the APK.
+        val versionSuffix = "-alpha-1.3"
+        versionName   = "0.5.8" + (if (libertyGpu == "mali") "-mali" else "") + versionSuffix
 
         // Read by DriverBridge.defaultMode(): the driver used when driver.txt
         // does not exist yet.

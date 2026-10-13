@@ -42,3 +42,7 @@ LIBERTY_GPU=mali bash os/android/scripts/build_apk.sh
    ```bash
    adb logcat -s LibertyRecomp LibertyDriver SDL DEBUG
    ```
+
+## Performance Investigation
+
+See [PERFORMANCE_DIAGNOSTICS.md](file:///home/aksingh001/Development/LibertyRecompAndroidMaliVer/docs/android/PERFORMANCE_DIAGNOSTICS.md) for the in-depth architectural breakdown, exact function hooks, and the minimal profiling patch for investigating the 3–6 FPS framerate on Dimensity 9000 (Mali-G710).

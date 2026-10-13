@@ -43,6 +43,7 @@
 #include <iomanip>
 #include <limits>
 #include <map>
+#include <cstdlib>
 #include <mutex>
 #include <random>
 #include <set>
@@ -193,6 +194,9 @@ REXCVAR_DEFINE_BOOL(gta4_native_skip_attachment_barriers, false, "GTA IV/Graphic
                     "(Turnip keeps draw order across scopes)");
 REXCVAR_DEFINE_UINT32(gta4_profile_native_capture_trigger, 0, "GTA IV/Diagnostics",
                       "TEMP: changing this value starts one native profile capture");
+REXCVAR_DEFINE_UINT32(gta4_profile_native_capture_delay_seconds, 0, "GTA IV/Diagnostics",
+                      "Seconds to wait after the capture trigger changes before capturing, so a "
+                      "trigger set before launch captures gameplay instead of loading screens");
 REXCVAR_DEFINE_BOOL(gta4_native_dump_shaders, false, "GTA IV/Diagnostics",
                     "TEMP: write every registered stock shader's SPIR-V to spv/ in the user folder");
 REXCVAR_DEFINE_UINT32(gta4_native_water_reflection_interval, 1, "GTA IV/Graphics/Reflections",
@@ -548,6 +552,21 @@ REXCVAR_DEFINE_UINT32(
     "Optional native texture heap budget cap in MiB (0 uses the Vulkan driver budget)");
 
 namespace rex::graphics::gta4_native {
+namespace {
+// Diagnostics go where the user can reach them: on Android the app's
+// external files folder (Android/data/<app>/files), not private storage.
+std::filesystem::path NativeDiagnosticsRoot() {
+#if REX_PLATFORM_ANDROID
+  // LibertyActivity sets HOME to the app's external files folder before the
+  // game starts. (This library cannot link against the core library's
+  // GetExternalFilesFolder, so the environment is the shared channel.)
+  if (const char* home = std::getenv("HOME"); home && *home) {
+    return std::filesystem::path(home) / "LibertyRecomp" / "Diagnostics";
+  }
+#endif
+  return rex::filesystem::GetUserFolder() / "LibertyRecomp" / "Diagnostics";
+}
+}  // namespace
 
 static std::atomic<bool> g_native_profile_capture_requested{false};
 static std::atomic<bool> g_native_profile_transport_active{false};
@@ -10667,8 +10686,7 @@ void Gta4NativeGraphicsSystem::ExportNativeGpuProfile() {
   metadata.settings.emplace_back("constant_upload_bytes", "actual register bytes written to mapped storage");
   metadata.settings.emplace_back("constant_upload_register_bytes",
                                  std::to_string(NativeConstantUploadTracker::kRegisterBytes));
-  const std::filesystem::path output_path = rex::filesystem::GetUserFolder() / "LibertyRecomp" /
-                                            "Diagnostics" / "native-performance-latest.log";
+  const std::filesystem::path output_path = NativeDiagnosticsRoot() / "native-performance-latest.log";
   const std::filesystem::path csv_path =
       output_path.parent_path() / "native-performance-latest.csv";
   native_gpu_profile_state_.export_thread = std::thread([this, output_path, csv_path]() {
@@ -10832,9 +10850,29 @@ bool Gta4NativeGraphicsSystem::BeginNativeGpuProfileFrame(VkCommandBuffer comman
   profile_payload_in_flight |= native_gpu_profile_state_.completed_attribution.size() != 0;
   {
     static uint32_t last_trigger = 0;
+    static uint64_t delayed_request_tick = 0;
     const uint32_t trigger = REXCVAR_GET(gta4_profile_native_capture_trigger);
+    const uint64_t now_tick = rex::chrono::Clock::QueryHostTickCount();
     if (trigger != last_trigger) {
       last_trigger = trigger;
+      const uint64_t delay_seconds = REXCVAR_GET(gta4_profile_native_capture_delay_seconds);
+      if (delay_seconds) {
+        delayed_request_tick =
+            now_tick + delay_seconds * rex::chrono::Clock::QueryHostTickFrequency();
+#if REX_PLATFORM_ANDROID
+        __android_log_print(ANDROID_LOG_WARN, "LibertyRecomp",
+                            "profile-capture: scheduled in %llu s",
+                            static_cast<unsigned long long>(delay_seconds));
+#endif
+      } else {
+        g_native_profile_capture_requested.store(true, std::memory_order_release);
+#if REX_PLATFORM_ANDROID
+        __android_log_print(ANDROID_LOG_WARN, "LibertyRecomp", "profile-capture: requested");
+#endif
+      }
+    }
+    if (delayed_request_tick && now_tick >= delayed_request_tick) {
+      delayed_request_tick = 0;
       g_native_profile_capture_requested.store(true, std::memory_order_release);
 #if REX_PLATFORM_ANDROID
       __android_log_print(ANDROID_LOG_WARN, "LibertyRecomp", "profile-capture: requested");
@@ -12020,7 +12058,7 @@ void Gta4NativeGraphicsSystem::ExportNativeMemoryProfile(
     return;
   }
   const std::filesystem::path directory =
-      rex::filesystem::GetUserFolder() / "LibertyRecomp" / "Diagnostics";
+      NativeDiagnosticsRoot();
   native_memory_profile_state_.export_thread = std::thread([samples = std::move(samples),
                                                             events = std::move(events),
                                                             retained = std::move(retained),
@@ -18126,6 +18164,7 @@ Gta4NativeGraphicsSystem::NativeTextureImage* Gta4NativeGraphicsSystem::GetOrCre
     std::vector<uint8_t> decoded_payload;
     std::vector<size_t> decoded_offsets;
     if (bc_source_format != VK_FORMAT_UNDEFINED) {
+      const auto decode_start = std::chrono::steady_clock::now();
       const uint32_t block_bytes = NativeBcBlockBytes(bc_source_format);
       decoded_offsets.reserve(texture->mip_levels.size());
       for (const NativeTextureResource::MipLevel& mip : texture->mip_levels) {
@@ -18144,6 +18183,31 @@ Gta4NativeGraphicsSystem::NativeTextureImage* Gta4NativeGraphicsSystem::GetOrCre
           DecodeNativeBcSlice(bc_source_format, texture->payload.data() + source_offset,
                               blocks_x * 4, blocks_y * 4,
                               decoded_payload.data() + offset + decoded_slice * slice);
+        }
+      }
+      // Decode statistics, logged every 5 seconds while textures stream in.
+      {
+        static std::mutex stats_mutex;
+        static auto window_start = decode_start;
+        static uint32_t textures = 0;
+        static uint64_t bytes = 0;
+        static double total_ms = 0.0, slowest_ms = 0.0;
+        const auto now = std::chrono::steady_clock::now();
+        const double ms = std::chrono::duration<double, std::milli>(now - decode_start).count();
+        std::lock_guard stats_lock(stats_mutex);
+        ++textures;
+        bytes += decoded_payload.size();
+        total_ms += ms;
+        slowest_ms = std::max(slowest_ms, ms);
+        if (now - window_start >= std::chrono::seconds(5)) {
+          REXLOG_WARN("bc-decode: {} textures, {:.1f} MB, {:.1f} ms total, slowest {:.1f} ms, "
+                      "{} worker threads",
+                      textures, bytes / (1024.0 * 1024.0), total_ms, slowest_ms,
+                      NativeBcDecodePool::Get().worker_count());
+          window_start = now;
+          textures = 0;
+          bytes = 0;
+          total_ms = slowest_ms = 0.0;
         }
       }
     }

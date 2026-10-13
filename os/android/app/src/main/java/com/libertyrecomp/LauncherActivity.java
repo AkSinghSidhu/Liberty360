@@ -162,6 +162,22 @@ public class LauncherActivity extends Activity {
 
     /** A small GitHub mark and the author's name, opening the project page. */
     private View buildGithubFooter() {
+        LinearLayout wrapper = new LinearLayout(this);
+        wrapper.setOrientation(LinearLayout.HORIZONTAL);
+        wrapper.setGravity(Gravity.CENTER);
+        wrapper.addView(githubLink("vaduur", "https://github.com/vaduur/LibertyRecompAndroid"),
+                new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT));
+        LinearLayout.LayoutParams forkParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        forkParams.leftMargin = dp(12);
+        wrapper.addView(githubLink("prollynotzjay (Mali Support and Extras :P)",
+                "https://github.com/prollynotzjay/LibertyRecompAndroidMaliVer"), forkParams);
+        return wrapper;
+    }
+
+    /** A GitHub mark and a name that opens url in the browser. */
+    private View githubLink(String label, String url) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER);
@@ -169,7 +185,7 @@ public class LauncherActivity extends Activity {
         ImageView mark = new ImageView(this);
         mark.setImageResource(R.drawable.ic_github);
         row.addView(mark, new LinearLayout.LayoutParams(dp(16), dp(16)));
-        TextView name = text("vaduur", 13, R.color.picker_muted);
+        TextView name = text(label, 13, R.color.picker_muted);
         LinearLayout.LayoutParams nameParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         nameParams.leftMargin = dp(6);
@@ -178,17 +194,12 @@ public class LauncherActivity extends Activity {
         row.setBackground(focusBackground(Color.TRANSPARENT));
         row.setOnClickListener(v -> {
             try {
-                startActivity(new Intent(Intent.ACTION_VIEW,
-                        Uri.parse("https://github.com/vaduur/LibertyRecompAndroid")));
+                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
             } catch (Exception e) {
-                toast("github.com/vaduur/LibertyRecompAndroid");
+                toast(url.replace("https://", ""));
             }
         });
-        LinearLayout wrapper = new LinearLayout(this);
-        wrapper.setGravity(Gravity.CENTER);
-        wrapper.addView(row, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT));
-        return wrapper;
+        return row;
     }
 
     @Override
@@ -227,7 +238,8 @@ public class LauncherActivity extends Activity {
         // taller and pushes the rest off screen: keep it to a quarter of the
         // height; adjustViewBounds keeps the aspect ratio.
         banner.setMaxHeight(getResources().getDisplayMetrics().heightPixels / 4);
-        left.addView(banner, new LinearLayout.LayoutParams(
+        left.setClipChildren(false);  // the handwriting may reach just below the banner
+        left.addView(buildBannerWithEdition(banner), new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         TextView version = text(versionLine(), 13, R.color.picker_muted);
@@ -327,6 +339,7 @@ public class LauncherActivity extends Activity {
         column.addView(right, matchWrap(dp(14)));
         column.addView(buildGraphicsCard(), matchWrap(dp(14)));
         column.addView(buildOverlayCard(), matchWrap(dp(14)));
+        column.addView(buildSaveRow(), matchWrap(dp(14)));
         ScrollView rightScroll = new ScrollView(this);
         mRightScroll = rightScroll;
         rightScroll.addView(column);
@@ -399,6 +412,56 @@ public class LauncherActivity extends Activity {
     private LinearLayout mCrashCard;
     private TextView mCrashText;
 
+    // "Mali Edition" scribbled under the logo in a handwriting font (Rock Salt,
+    // Apache License 2.0, assets/fonts/). Positioned from where the banner
+    // image is actually drawn, so it lines up at any screen size.
+    private View buildBannerWithEdition(ImageView banner) {
+        android.widget.FrameLayout frame = new android.widget.FrameLayout(this);
+        frame.setClipChildren(false);
+        frame.addView(banner, new android.widget.FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        TextView edition = new TextView(this);
+        edition.setText("Mali Edition");
+        edition.setTextColor(0xF0FFFFFF);
+        edition.setIncludeFontPadding(false);
+        edition.setSingleLine(true);
+        try {
+            edition.setTypeface(Typeface.createFromAsset(getAssets(), "fonts/RockSalt-Regular.ttf"));
+        } catch (RuntimeException e) {
+            edition.setTypeface(Typeface.create("casual", Typeface.ITALIC));
+        }
+        edition.setRotation(-4f);
+        edition.setPivotX(0f);
+        edition.setVisibility(View.INVISIBLE);
+        frame.addView(edition, new android.widget.FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        banner.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight,
+                oldBottom) -> {
+            android.graphics.drawable.Drawable image = banner.getDrawable();
+            int viewWidth = right - left;
+            int viewHeight = bottom - top;
+            if (image == null || viewWidth <= 0 || viewHeight <= 0) return;
+            int imageWidth = image.getIntrinsicWidth();
+            int imageHeight = image.getIntrinsicHeight();
+            if (imageWidth <= 0 || imageHeight <= 0) return;
+            // FIT_CENTER: scale to fit, centred.
+            float scale = Math.min(viewWidth / (float) imageWidth, viewHeight / (float) imageHeight);
+            float drawnWidth = imageWidth * scale;
+            float drawnHeight = imageHeight * scale;
+            float offsetX = (viewWidth - drawnWidth) / 2f;
+            float offsetY = (viewHeight - drawnHeight) / 2f;
+            float textSize = drawnHeight * 0.15f;
+            edition.setTextSize(TypedValue.COMPLEX_UNIT_PX, textSize);
+            // Under the underline, left of "FOR ANDROID".
+            edition.setTranslationX(offsetX + drawnWidth * 0.215f);
+            edition.setTranslationY(offsetY + drawnHeight * 0.70f);
+            edition.setVisibility(View.VISIBLE);
+        });
+        return frame;
+    }
+
     // Graphics settings: one dropdown per setting, saved to graphics.txt, which
     // LibertyActivity appends after args.txt. "Default" writes nothing, so the
     // value from args.txt applies.
@@ -466,6 +529,9 @@ public class LauncherActivity extends Activity {
                     new String[] {"0", "1", "2"}),
     };
     private final Spinner[] mGraphicsSpinners = new Spinner[GRAPHICS_SETTINGS.length];
+    // Last known selection per dropdown, so only real changes mark the
+    // settings unsaved (Android also fires a selection event at startup).
+    private final int[] mGraphicsPositions = new int[GRAPHICS_SETTINGS.length];
     private boolean mGraphicsLoading;
 
     private View buildGraphicsCard() {
@@ -476,8 +542,8 @@ public class LauncherActivity extends Activity {
         TextView title = text("Graphics settings", 18, R.color.picker_text);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         card.addView(title);
-        card.addView(text("\"Default\" keeps the value from args.txt. Applied the next time you "
-                + "press Play.", 12, R.color.picker_muted), matchWrap(dp(2)));
+        card.addView(text("\"Default\" keeps the value from args.txt. Press Save changes, then "
+                + "Play.", 12, R.color.picker_muted), matchWrap(dp(2)));
 
         java.util.Map<String, String> saved = readGraphicsSettings();
         mGraphicsLoading = true;
@@ -507,10 +573,14 @@ public class LauncherActivity extends Activity {
                 }
             }
             spinner.setSelection(selection, false);
+            mGraphicsPositions[i] = selection;
+            final int index = i;
             spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
                 @Override
                 public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                    if (!mGraphicsLoading) writeGraphicsSettings();
+                    if (position == mGraphicsPositions[index]) return;
+                    mGraphicsPositions[index] = position;
+                    markSettingsChanged();
                 }
 
                 @Override
@@ -532,8 +602,8 @@ public class LauncherActivity extends Activity {
             mGraphicsLoading = true;
             for (Spinner spinner : mGraphicsSpinners) spinner.setSelection(0, false);
             mGraphicsLoading = false;
-            writeGraphicsSettings();
-            toast("Graphics settings reset");
+            markSettingsChanged();
+            toast("Graphics settings set to Default - press Save changes");
         });
         LinearLayout.LayoutParams resetParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(44));
@@ -605,6 +675,52 @@ public class LauncherActivity extends Activity {
         }
     }
 
+    // Save row: graphics and overlay changes are only written when the user
+    // presses Save changes (or Play, which saves pending changes first).
+    private boolean mSettingsDirty;
+    private TextView mSaveStatus;
+
+    private View buildSaveRow() {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setPadding(dp(16), dp(12), dp(16), dp(12));
+        row.setBackground(rounded(color(R.color.picker_card), dp(10)));
+        Button save = button("Save changes", true);
+        save.setOnClickListener(v -> saveSettings(true));
+        row.addView(save, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
+        mSaveStatus = text("", 12, R.color.picker_muted);
+        mSaveStatus.setGravity(Gravity.CENTER);
+        row.addView(mSaveStatus, matchWrap(dp(6)));
+        updateSaveStatus();
+        return row;
+    }
+
+    private void markSettingsChanged() {
+        mSettingsDirty = true;
+        updateSaveStatus();
+    }
+
+    private void updateSaveStatus() {
+        if (mSaveStatus == null) return;
+        if (mSettingsDirty) {
+            mSaveStatus.setText("Unsaved changes");
+            mSaveStatus.setTextColor(0xFFF0D25A);
+        } else {
+            mSaveStatus.setText("All changes saved");
+            mSaveStatus.setTextColor(color(R.color.picker_muted));
+        }
+    }
+
+    /** Writes graphics.txt and overlay.txt. */
+    private void saveSettings(boolean announce) {
+        writeGraphicsSettings();
+        writeOverlaySettings();
+        mSettingsDirty = false;
+        updateSaveStatus();
+        if (announce) toast("Saved - the new settings apply when you press Play");
+    }
+
     // Performance overlay: one checkbox per line, saved to overlay.txt, which
     // LibertyActivity appends to the game's arguments at launch.
     private static final String[][] OVERLAY_OPTIONS = {
@@ -626,7 +742,7 @@ public class LauncherActivity extends Activity {
         title.setTypeface(Typeface.DEFAULT_BOLD);
         card.addView(title);
         card.addView(text("A small box in the top-left corner during gameplay. Turn on only what "
-                + "you want to see. Applied the next time you press Play.", 12,
+                + "you want to see. Press Save changes, then Play.", 12,
                 R.color.picker_muted), matchWrap(dp(2)));
         java.util.Set<String> enabled = readOverlaySettings();
         for (int i = 0; i < OVERLAY_OPTIONS.length; ++i) {
@@ -636,7 +752,7 @@ public class LauncherActivity extends Activity {
             box.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
             box.setChecked(enabled.contains(OVERLAY_OPTIONS[i][0]));
             box.setFocusable(true);
-            box.setOnCheckedChangeListener((view, checked) -> writeOverlaySettings());
+            box.setOnCheckedChangeListener((view, checked) -> markSettingsChanged());
             mOverlayBoxes[i] = box;
             card.addView(box, matchWrap(dp(4)));
             TextView note = text(OVERLAY_OPTIONS[i][2], 11, R.color.picker_muted);
@@ -1314,6 +1430,11 @@ public class LauncherActivity extends Activity {
 
     private void play(boolean debugLog) {
         if (mBusy) return;
+        // Never start with unsaved launcher settings: save them first.
+        if (mSettingsDirty) {
+            saveSettings(false);
+            toast("Unsaved settings were saved before starting");
+        }
         if (Installer.running()) {
             toast("The game is being installed.");
             return;

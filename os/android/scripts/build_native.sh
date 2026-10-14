@@ -35,7 +35,7 @@ HOST_DXC_BIN="$HOST_DXC_DIR/dxc-linux"
 HOST_DXC_LIB="$REPO/out/host-tools/dxc/lib/x64"
 [ -d "$HOST_DXC_LIB" ] || HOST_DXC_LIB="$REPO/out/host-tools/dxc/lib"
 
-CPU_FLAGS="-march=armv8.2-a -fno-emulated-tls"
+CPU_FLAGS="-march=armv8.2-a -mtune=cortex-a710 -fno-emulated-tls"
 if [ ! -f "$BUILD_DIR/build.ninja" ] || ! grep -q -- "-fno-emulated-tls" "$BUILD_DIR/CMakeCache.txt"; then
   echo "== configuring $BUILD_TYPE in $BUILD_DIR"
   cmake -S "$REPO" -B "$BUILD_DIR" -G Ninja \

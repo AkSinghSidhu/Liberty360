@@ -14,9 +14,9 @@ The recompiled game runs natively on arm64 Android devices without an emulator. 
 - **Vulkan Driver:** Stock vendor driver (`vulkan.mali.so` reporting Vulkan 1.1.177)
 - **In-Game Status:** **Fully Working In-Game**
   - Installs, boots, and loads save files / intro smoothly.
-  - 3D world geometry, lighting, shadows, textures, HUD, subtitles, and touch controls render correctly.
+  - 3D world geometry, lighting, shadows, textures, HUD, subtitles, and touch controls render correctly with the default **`gta4-native`** backend.
   - Audio runs cleanly (~95% working via low-latency AAudio stereo 48 kHz).
-  - Current framerate: **5–6 FPS** in 3D gameplay using the `--gpu_plugin=xenos` backend on the stock Vulkan 1.1 driver (optimization in active progress).
+  - Current framerate: **~14–15 FPS** in 3D gameplay (measured in Hove Beach via the game's frame counter / `scripts/fps.sh`); optimization is in active progress. The legacy `--gpu_plugin=xenos` backend remains selectable for A/B testing.
 
 ---
 
@@ -45,6 +45,16 @@ The recompiled game runs natively on arm64 Android devices without an emulator. 
 
 7. **Automated Host Toolchain & NDK Build Scripts:**
    - Automated detection and building of required host tools (`recomp-clang`, `direct_calls`, `extract-xiso`) in `build_native.sh`, `env.sh`, and `setup_host_tools.sh`.
+
+8. **Native (`gta4-native`) black-world fix — Mali per-format MSAA capability mismatch (2026-10-16):**
+   - GTA IV's scene render targets are 2× MSAA. Mali's *device-wide* limits advertise 2×, but the *per-format* query (`vkGetPhysicalDeviceImageFormatProperties`) returns `sampleCounts=0x1D` (1×/4×/8×/16× — **no 2×**) for the scene tuples, so the strict capability check rejected the scene targets before `vkCreateImage` ever ran — the 3D world drew black while HUD/2D stayed visible.
+   - Fixed by settling **one coherent, driver-advertised sample count per attachment family** before image creation: `QueryImageFormatSampleCounts()` reuses the same driver query as validation, a per-surface clamp degrades 4→2→1 where a tuple lacks the requested count, and the scene MSAA override is family-validated across color + depth. Strict validation stays intact — no bypasses.
+   - Applies to every path (scene targets, reflections, explicit depth handoff). Verified on-device: zero surface rejects, world renders. Full evidence in `docs/android/MALI_FINDINGS.md` (F11/F14).
+
+9. **Native surface diagnostics & recovery tooling:**
+   - `CreateDedicatedAllocationImage` logs each step/result (`support-query` → `bind-memory`) with exact `VkResult` names and driver limits, and capability rejections now name the failing predicate (`predicate=sample-count … sampleCounts=…`).
+   - Surfaces gained the same one-pass reclamation/retry recovery that textures already had (safety net under real memory pressure).
+   - `fps.sh` now measures via the game's per-frame counter (SurfaceFlinger's latency buffer is empty for BLAST layers on modern Android).
 
 ---
 

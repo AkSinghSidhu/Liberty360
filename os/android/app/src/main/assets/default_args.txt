@@ -25,4 +25,6 @@
 --gta4_present_mode=vsync
 # The 30 FPS guard (environment reflection rate only now) is off by default.
 --gta4_fps_guard=0
---gpu_plugin=xenos
+--gpu_plugin=gta4-native
+# Deep audio buffer queue (64 blocks ~ 340ms) to avoid ring buffer starvation on frame hitches
+--audio_maxqframes=64

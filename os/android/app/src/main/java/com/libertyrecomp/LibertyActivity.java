@@ -232,19 +232,20 @@ public class LibertyActivity extends SDLActivity {
         arguments.addAll(Arrays.asList(readArguments(new File(dataRoot, GRAPHICS_FILE))));
         arguments.addAll(Arrays.asList(readArguments(new File(dataRoot, OVERLAY_FILE))));
 
-        // On Mali builds, ensure --gpu_plugin=xenos is ALWAYS present so that
-        // missing dynamic rendering in Mali system drivers does not cause an immediate crash.
-        if (DriverBridge.isMaliBuild()) {
-            boolean hasGpuPlugin = false;
-            for (String arg : arguments) {
-                if (arg.startsWith("--gpu_plugin=") || arg.equals("--gpu_plugin")) {
-                    hasGpuPlugin = true;
-                    break;
+        // Ensure --gpu_plugin=gta4-native is the default backend.
+        boolean hasGpuPlugin = false;
+        for (int i = 0; i < arguments.size(); ++i) {
+            String arg = arguments.get(i);
+            if (arg.startsWith("--gpu_plugin=") || arg.equals("--gpu_plugin")) {
+                hasGpuPlugin = true;
+                if (arg.equals("--gpu_plugin=xenos")) {
+                    arguments.set(i, "--gpu_plugin=gta4-native");
                 }
+                break;
             }
-            if (!hasGpuPlugin) {
-                arguments.add(0, "--gpu_plugin=xenos");
-            }
+        }
+        if (!hasGpuPlugin) {
+            arguments.add(0, "--gpu_plugin=gta4-native");
         }
         // The runtime's own log (warnings and errors at the default level) goes
         // to logcat and Liberty Recompiled/logs, and ends up in crash reports.
@@ -472,6 +473,7 @@ public class LibertyActivity extends SDLActivity {
             // shadows; 0.85 was an interim default of test builds).
             {"--gta4_dynamic_draw_distance_min=0.75", "--gta4_dynamic_draw_distance_min=0.80"},
             {"--gta4_dynamic_draw_distance_min=0.85", "--gta4_dynamic_draw_distance_min=0.80"},
+            {"--gpu_plugin=xenos", "--gpu_plugin=gta4-native"},
     };
 
     private static void migrateArguments(File file) {

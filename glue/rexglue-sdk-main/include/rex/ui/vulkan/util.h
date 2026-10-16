@@ -51,8 +51,23 @@ enum class MemoryPurpose {
 };
 
 // Exact support for ordinary (pNext-null) image creation tuples and extents.
+// When provided, failure_result receives:
+//   - the driver's format-properties result when the query itself failed,
+//   - VK_ERROR_UNKNOWN when the query answered but a reported limit (extent,
+//     mip levels, array layers or sample counts) was exceeded,
+//   - VK_SUCCESS when the tuple is supported.
 bool IsImageCreateInfoSupported(const VulkanDevice* vulkan_device,
-                                const VkImageCreateInfo& create_info);
+                                const VkImageCreateInfo& create_info,
+                                VkResult* failure_result = nullptr);
+
+// The driver's advertised per-format sample counts for the exact tuple, or 0
+// when the driver failed the format-properties query (callers must then not
+// infer anything from it). Mirrors the query IsImageCreateInfoSupported runs
+// so selection and validation always read the same source.
+VkSampleCountFlags QueryImageFormatSampleCounts(const VulkanDevice* vulkan_device,
+                                                VkFormat format, VkImageType image_type,
+                                                VkImageTiling tiling, VkImageUsageFlags usage,
+                                                VkImageCreateFlags flags);
 
 inline uint32_t ChooseHostMemoryType(const VulkanDevice::MemoryTypes& memory_types,
                                      uint32_t supported_types, const bool is_readback) {

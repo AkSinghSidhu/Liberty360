@@ -3293,8 +3293,16 @@ bool VulkanPipelineCache::EnsurePipelineCreated(const PipelineCreationArguments&
   }
   if (description.sample_rate_shading &&
       multisample_state.rasterizationSamples != VK_SAMPLE_COUNT_1_BIT) {
+#if defined(__ANDROID__)
+    // On mobile GPUs (especially Mali with 4x promoted MSAA), sample-rate shading
+    // turns 4x MSAA into full 4x SSAA, causing in-game framerate to drop to 2 FPS.
+    // Standard per-pixel shading with sample-mask provides correct MSAA coverage.
+    multisample_state.sampleShadingEnable = VK_FALSE;
+    multisample_state.minSampleShading = 0.0f;
+#else
     multisample_state.sampleShadingEnable = VK_TRUE;
     multisample_state.minSampleShading = 1.0f;
+#endif
   }
 
   VkPipelineDepthStencilStateCreateInfo depth_stencil_state = {};

@@ -2979,6 +2979,15 @@ VkSampleCountFlagBits ConvertSurfaceSamples(uint32_t sample_type) {
   }
 }
 
+// Usage flags of every native surface image; shared by creation and by the
+// per-format capability queries so selection and validation cannot drift.
+constexpr VkImageUsageFlags NativeSurfaceImageUsage(bool depth) {
+  return (depth ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
+                : VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) |
+         VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+         VK_IMAGE_USAGE_SAMPLED_BIT;
+}
+
 VkSampleCountFlagBits ConvertNativeSampleCount(uint32_t sample_count) {
   switch (sample_count) {
     case 1:
@@ -20412,6 +20421,37 @@ Gta4NativeGraphicsSystem::NativeSurfaceImage* Gta4NativeGraphicsSystem::GetOrCre
       return reject("reflection-sample-capabilities");
     }
   }
+  // Device-wide limit masks can still advertise counts the driver's per-format
+  // query rejects for the exact tuple being created (observed on Mali with 2x
+  // on the scene transfer-sampled tuples). Settle the physical count on what
+  // the driver answers for this format/usage before anything is created, so
+  // the image, its render passes, pipelines and resolves all use the same
+  // count - and so callers that request the same surface without an override
+  // (for example the depth handoff) resolve to the same image.
+  {
+    const VkSampleCountFlags tuple_samples = ui::vulkan::util::QueryImageFormatSampleCounts(
+        vulkan_device, format, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL,
+        NativeSurfaceImageUsage(depth), 0);
+    if (tuple_samples && !(tuple_samples & samples)) {
+      const VkSampleCountFlagBits requested_samples = samples;
+      while (samples != VK_SAMPLE_COUNT_1_BIT && !(tuple_samples & samples)) {
+        samples = samples == VK_SAMPLE_COUNT_4_BIT ? VK_SAMPLE_COUNT_2_BIT : VK_SAMPLE_COUNT_1_BIT;
+      }
+      if (!(tuple_samples & samples)) {
+        return reject("image-format-samples-unsupported");
+      }
+      static std::atomic<uint64_t> sample_clamp_log_count{0};
+      const uint64_t clamp_count =
+          sample_clamp_log_count.fetch_add(1, std::memory_order_relaxed) + 1;
+      if (clamp_count <= 16 || !(clamp_count % 1024)) {
+        REXLOG_WARN(
+            "gta4-native-diag: surface-sample-clamp handle={:08X} depth={} format={} "
+            "extent={}x{} requested={:X} effective={:X} tuple-sampleCounts={:X}",
+            descriptor.handle, depth, uint32_t(format), image_width, image_height,
+            uint32_t(requested_samples), uint32_t(samples), uint32_t(tuple_samples));
+      }
+    }
+  }
   const auto surface_bucket = surface_images_by_handle_.find(descriptor.handle);
   if (surface_bucket != surface_images_by_handle_.end()) for (auto* image : surface_bucket->second) {
     if (!pending_surface_release_ids_.contains(image->lifetime_id) &&
@@ -20499,15 +20539,53 @@ Gta4NativeGraphicsSystem::NativeSurfaceImage* Gta4NativeGraphicsSystem::GetOrCre
   image_info.arrayLayers = 1;
   image_info.samples = samples;
   image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-  image_info.usage =
-      depth ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT : VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-  image_info.usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                      VK_IMAGE_USAGE_SAMPLED_BIT;
+  image_info.usage = NativeSurfaceImageUsage(depth);
   image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
   image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-  if (!ui::vulkan::util::CreateDedicatedAllocationImage(
-          vulkan_device, image_info, ui::vulkan::util::MemoryPurpose::kDeviceLocal,
-          image->resource.image, image->resource.memory)) {
+  bool surface_allocated = false;
+  for (uint32_t allocation_attempt = 0;; ++allocation_attempt) {
+    if (ui::vulkan::util::CreateDedicatedAllocationImage(
+            vulkan_device, image_info, ui::vulkan::util::MemoryPurpose::kDeviceLocal,
+            image->resource.image, image->resource.memory)) {
+      surface_allocated = true;
+      break;
+    }
+    if (!ShouldRetryNativeTextureAllocation(allocation_attempt)) {
+      break;
+    }
+    // Surface images previously gave up on the first driver failure, unlike
+    // the texture path, so a transient failure left the surface rejected on
+    // every subsequent frame forever. Mirror the texture recovery: complete
+    // the other frame slot so retired generations release real device memory,
+    // reclaim pooled and evictable resources, then retry. The reclaim pass is
+    // bounded to one per texture frame because every failing surface re-enters
+    // this path each frame.
+    if (!surface_allocation_recovery_active_ &&
+        last_surface_allocation_recovery_frame_ != active_texture_frame_) {
+      last_surface_allocation_recovery_frame_ = active_texture_frame_;
+      surface_allocation_recovery_active_ = true;
+      TrimTextureAllocationPool(true);
+      const bool slot_completed = CompleteSecondaryNativeFrameSlot();
+      EvictNativeTextureImages(active_texture_frame_, true);
+      const bool retired_released = ReleaseRetiredTextureImages(true);
+      if (texture_reclaimer_) {
+        texture_reclaimer_->Drain();
+      }
+      TrimTextureAllocationPool(true);
+      ReleasePendingSurfaceImages();
+      surface_allocation_recovery_active_ = false;
+      static std::atomic<uint64_t> recovery_log_count{0};
+      const uint64_t recovery_count =
+          recovery_log_count.fetch_add(1, std::memory_order_relaxed) + 1;
+      if (recovery_count <= 16 || !(recovery_count % 512)) {
+        REXLOG_WARN(
+            "gta4-native-diag: surface-allocation-recovery handle={:08X} depth={} attempt={} "
+            "slot-completed={} retired-released={}",
+            descriptor.handle, depth, allocation_attempt + 1, slot_completed, retired_released);
+      }
+    }
+  }
+  if (!surface_allocated) {
     if (!is_reflection ||
         (image_width == image->logical_width && image_height == image->logical_height)) {
       return reject("image-allocation");
@@ -20718,11 +20796,55 @@ bool Gta4NativeGraphicsSystem::ResolveRenderingTarget(const NativeCommand& comma
     all_bound_surfaces_are_guest_multisampled &=
         state.depth_stencil.sample_type != uint32_t(xenos::MsaaSamples::k1X);
   }
-  const VkSampleCountFlagBits scene_sample_override =
-      ShouldApplyNativeSceneSampleOverride(reflection_target, has_bound_surface,
-                                           all_bound_surfaces_are_guest_multisampled)
-          ? GetNativeSceneSampleOverride()
-          : VK_SAMPLE_COUNT_FLAG_BITS_MAX_ENUM;
+  VkSampleCountFlagBits scene_sample_override = VK_SAMPLE_COUNT_FLAG_BITS_MAX_ENUM;
+  if (ShouldApplyNativeSceneSampleOverride(reflection_target, has_bound_surface,
+                                           all_bound_surfaces_are_guest_multisampled)) {
+    const VkSampleCountFlagBits requested_override = GetNativeSceneSampleOverride();
+    if (requested_override != VK_SAMPLE_COUNT_FLAG_BITS_MAX_ENUM) {
+      auto* vulkan_provider = static_cast<ui::vulkan::VulkanProvider*>(provider_.get());
+      const ui::vulkan::VulkanDevice* vulkan_device = vulkan_provider->vulkan_device();
+      const auto& properties = vulkan_device->properties();
+      VkSampleCountFlags family_samples =
+          properties.framebufferColorSampleCounts & properties.framebufferDepthSampleCounts &
+          properties.framebufferStencilSampleCounts & properties.sampledImageColorSampleCounts &
+          properties.sampledImageDepthSampleCounts;
+      // Every attachment of a target settles on one shared count, so the
+      // override must survive the per-format query of every surface in the
+      // family - the device-wide masks alone can select a count the driver
+      // then rejects for some of the tuples, which rejects the whole target.
+      // Reflection surfaces have their own managed family and never take this
+      // override, so they are not allowed to narrow it.
+      for (uint32_t index = 0; index < kRenderTargetCount; ++index) {
+        const SurfaceDescriptor& descriptor = state.render_targets[index];
+        if (!(requested_colors & (1u << index)) || !descriptor.handle ||
+            FindNativeReflectionSurface(reflection_resources_, descriptor, false) != nullptr) {
+          continue;
+        }
+        const VkSampleCountFlags tuple_samples = ui::vulkan::util::QueryImageFormatSampleCounts(
+            vulkan_device, ConvertSurfaceFormat(descriptor.format, false), VK_IMAGE_TYPE_2D,
+            VK_IMAGE_TILING_OPTIMAL, NativeSurfaceImageUsage(false), 0);
+        if (tuple_samples) {
+          family_samples &= tuple_samples;
+        }
+      }
+      if (requested_depth && state.depth_stencil.handle &&
+          FindNativeReflectionSurface(reflection_resources_, state.depth_stencil, true) ==
+              nullptr) {
+        const VkSampleCountFlags tuple_samples = ui::vulkan::util::QueryImageFormatSampleCounts(
+            vulkan_device, ConvertSurfaceFormat(state.depth_stencil.format, true),
+            VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL, NativeSurfaceImageUsage(true), 0);
+        if (tuple_samples) {
+          family_samples &= tuple_samples;
+        }
+      }
+      const uint32_t selected_samples =
+          SelectSupportedNativeSceneSampleCount(uint32_t(requested_override),
+                                                uint32_t(family_samples));
+      if (selected_samples) {
+        scene_sample_override = VkSampleCountFlagBits(selected_samples);
+      }
+    }
+  }
 
   bool samples_initialized = false;
   bool guest_samples_initialized = false;

@@ -2645,6 +2645,11 @@ class Gta4NativeGraphicsSystem final : public system::IGraphicsSystem {
   uint32_t native_descriptor_capacity_ = 0;
   uint32_t native_sampler_descriptor_capacity_ = 0;
   bool null_images_initialized_ = false;
+  // Surface allocation recovery mirrors the texture path so a failed
+  // scene-surface allocation can reclaim device memory and retry instead of
+  // rejecting the surface on every frame forever.
+  bool surface_allocation_recovery_active_ = false;
+  uint32_t last_surface_allocation_recovery_frame_ = UINT32_MAX;
 };
 
 }  // namespace rex::graphics::gta4_native

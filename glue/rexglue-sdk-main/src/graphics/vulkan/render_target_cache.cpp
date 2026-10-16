@@ -4589,6 +4589,15 @@ VkPipeline const* VulkanRenderTargetCache::GetTransferPipelines(TransferPipeline
           ? VK_SAMPLE_COUNT_4_BIT
           : VkSampleCountFlagBits(dest_sample_count);
   if (dest_sample_count > 1) {
+#if defined(__ANDROID__)
+    multisample_state.sampleShadingEnable = VK_FALSE;
+    multisample_state.minSampleShading = 0.0f;
+    if (dest_sample_count == 2 && !msaa_2x_attachments_supported_) {
+      sample_mask = 0b1001;
+    } else {
+      sample_mask = 0b1;
+    }
+#else
     if (device_properties.sampleRateShading) {
       multisample_state.sampleShadingEnable = VK_TRUE;
       multisample_state.minSampleShading = 1.0f;
@@ -4600,6 +4609,7 @@ VkPipeline const* VulkanRenderTargetCache::GetTransferPipelines(TransferPipeline
     } else {
       sample_mask = 0b1;
     }
+#endif
     if (sample_mask != UINT32_MAX) {
       multisample_state.pSampleMask = &sample_mask;
     }
